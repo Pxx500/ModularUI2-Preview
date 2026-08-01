@@ -1,8 +1,6 @@
 package dev.modularui.preview;
 
 import java.io.IOException;
-import java.lang.reflect.Constructor;
-import java.lang.reflect.InvocationTargetException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -10,66 +8,31 @@ import java.util.List;
 
 import javax.imageio.ImageIO;
 
-import com.cleanroommc.modularui.api.IGuiHolder;
-import com.cleanroommc.modularui.factory.GuiData;
-import com.cleanroommc.modularui.screen.ModularPanel;
-import com.cleanroommc.modularui.screen.UISettings;
-import com.cleanroommc.modularui.value.sync.PanelSyncManager;
-
 public final class UiPreviewRunner {
 
-    public PreviewResult preview(String className, Path outputDirectory) throws IOException {
-        return preview(className, outputDirectory, PreviewScreen.fullHd());
+    public PreviewResult preview(Path projectRoot, String className, Path outputDirectory) throws IOException {
+        return preview(projectRoot, className, outputDirectory, PreviewScreen.fullHd());
     }
 
-    public PreviewResult preview(String className, Path outputDirectory, PreviewScreen screen) throws IOException {
-        IGuiHolder<GuiData> holder = loadHolder(className);
-        ModularPanel panel = holder.buildUI(new GuiData(null), new PanelSyncManager(null, true), new UISettings());
-        if (panel == null) {
-            throw new IllegalArgumentException("Preview class returned null instead of a ModularPanel: " + className);
-        }
-
-        PreviewResult result = new UiPreviewRenderer().render(panel, screen);
-        Files.createDirectories(outputDirectory);
-        ImageIO.write(
-            result.image(),
-            "png",
-            outputDirectory.resolve("preview.png")
-                .toFile());
-        Files.writeString(outputDirectory.resolve("bounds.json"), toJson(className, result), StandardCharsets.UTF_8);
-        return result;
-    }
-
-    @SuppressWarnings("unchecked")
-    private IGuiHolder<GuiData> loadHolder(String className) {
-        Class<?> previewClass;
-        try {
-            previewClass = Class.forName(
-                className,
-                true,
-                Thread.currentThread()
-                    .getContextClassLoader());
-        } catch (ClassNotFoundException exception) {
-            throw new IllegalArgumentException("Preview class was not found: " + className, exception);
-        }
-        if (!IGuiHolder.class.isAssignableFrom(previewClass)) {
-            throw new IllegalArgumentException("Preview class must implement IGuiHolder: " + className);
-        }
-
-        try {
-            Constructor<?> constructor = previewClass.getDeclaredConstructor();
-            constructor.setAccessible(true);
-            return (IGuiHolder<GuiData>) constructor.newInstance();
-        } catch (NoSuchMethodException exception) {
-            throw new IllegalArgumentException(
-                "Preview class needs a no-argument constructor: " + className,
-                exception);
-        } catch (InstantiationException | IllegalAccessException | InvocationTargetException exception) {
-            throw new IllegalArgumentException("Could not create preview class: " + className, exception);
+    public PreviewResult preview(Path projectRoot, String className, Path outputDirectory, PreviewScreen screen)
+        throws IOException {
+        try (PreviewSession session = PreviewEngine.open(projectRoot, className, screen)) {
+            PreviewResult result = session.render();
+            Files.createDirectories(outputDirectory);
+            ImageIO.write(
+                result.image(),
+                "png",
+                outputDirectory.resolve("preview.png")
+                    .toFile());
+            Files.writeString(
+                outputDirectory.resolve("bounds.json"),
+                toJson(className, session, result),
+                StandardCharsets.UTF_8);
+            return result;
         }
     }
 
-    private String toJson(String className, PreviewResult result) {
+    private String toJson(String className, PreviewSession session, PreviewResult result) {
         ScreenLayout layout = result.layout();
         StringBuilder json = new StringBuilder();
         json.append("{\n  \"schemaVersion\": 1");
@@ -78,6 +41,27 @@ public final class UiPreviewRunner {
             .append("\"");
         json.append(",\n  \"status\": \"")
             .append(result.warnings().isEmpty() ? "complete" : "warnings")
+            .append("\"");
+        json.append(",\n  \"entrypointClass\": \"")
+            .append(escapeJson(session.entrypointClassName()))
+            .append("\"");
+        json.append(",\n  \"entrypointCodeSource\": \"")
+            .append(escapeJson(session.entrypointCodeSource().toString()))
+            .append("\"");
+        json.append(",\n  \"previewedClass\": \"")
+            .append(escapeJson(session.previewedClassName()))
+            .append("\"");
+        json.append(",\n  \"previewedCodeSource\": \"")
+            .append(escapeJson(session.previewedCodeSource().toString()))
+            .append("\"");
+        json.append(",\n  \"panelName\": \"")
+            .append(escapeJson(session.panelName()))
+            .append("\"");
+        json.append(",\n  \"panelClass\": \"")
+            .append(escapeJson(session.panelClassName()))
+            .append("\"");
+        json.append(",\n  \"panelCodeSource\": \"")
+            .append(escapeJson(session.panelCodeSource().toString()))
             .append("\"");
         json.append(",\n  \"screen\": {\"width\": ")
             .append(layout.screenWidth())
@@ -100,6 +84,8 @@ public final class UiPreviewRunner {
         json.append('}');
         json.append(",\n  \"widgets\": [");
         appendWidgets(json, result.widgets());
+        json.append("\n  ],\n  \"assets\": [");
+        appendWarnings(json, result.assetSources());
         json.append("\n  ],\n  \"warnings\": [");
         appendWarnings(json, result.warnings());
         json.append("\n  ]\n}\n");

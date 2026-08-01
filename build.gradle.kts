@@ -1,5 +1,6 @@
 plugins {
     java
+    application
 }
 
 group = "dev.modularui.preview"
@@ -12,7 +13,7 @@ repositories {
 
 java {
     toolchain {
-        languageVersion.set(JavaLanguageVersion.of(21))
+        languageVersion.set(JavaLanguageVersion.of(25))
     }
 }
 
@@ -21,7 +22,17 @@ val preview by sourceSets.creating {
     resources.srcDir("src/preview/resources")
 }
 
+preview.compileClasspath += sourceSets.main.get().output
+
 dependencies {
+    implementation("com.google.code.gson:gson:2.10.1")
+    implementation("com.google.guava:guava:33.2.1-jre")
+    implementation("it.unimi.dsi:fastutil:8.5.13")
+    implementation("org.apache.logging.log4j:log4j-api:2.23.1")
+    runtimeOnly("org.apache.logging.log4j:log4j-core:2.23.1")
+    implementation("org.apache.commons:commons-lang3:3.15.0")
+    implementation("org.joml:joml:1.10.8")
+
     add(preview.implementationConfigurationName, "com.github.GTNewHorizons:ModularUI2:2.3.84-1.7.10:dev") {
         isTransitive = false
     }
@@ -37,25 +48,48 @@ sourceSets.test {
 
 tasks.test {
     useJUnitPlatform()
+
+    doFirst {
+        val modularUiClasspath = preview.compileClasspath - sourceSets.main.get().output
+        systemProperty("modularui.test.jar", modularUiClasspath.singleFile)
+    }
+}
+
+application {
+    applicationName = "modularui2-preview"
+    mainClass.set("dev.modularui.preview.UiPreviewMain")
+}
+
+val previewJavaLauncher = javaToolchains.launcherFor {
+    languageVersion.set(JavaLanguageVersion.of(25))
+}
+
+tasks.named<Sync>("installDist") {
+    doLast {
+        destinationDir.resolve("bin/java-executable.txt")
+            .writeText(previewJavaLauncher.get().executablePath.asFile.absolutePath)
+    }
 }
 
 tasks.register<JavaExec>("preview") {
     group = "application"
     description = "Renders a production-shaped ModularUI2 screen to preview.png and bounds.json."
-    classpath = files(sourceSets.main.get().output, preview.output) +
+    classpath = sourceSets.main.get().runtimeClasspath + preview.output +
         (preview.runtimeClasspath - preview.output)
     mainClass.set("dev.modularui.preview.UiPreviewMain")
 
     doFirst {
+        val previewProject = providers.gradleProperty("previewProject").orNull
+            ?: throw GradleException("Missing preview project. Use -PpreviewProject=path/to/project")
         val previewClass = providers.gradleProperty("previewClass").orNull
             ?: throw GradleException("Missing preview class. Use -PpreviewClass=fully.qualified.ClassName")
         val outputDirectory = providers.gradleProperty("previewOutput")
             .orElse("output/${previewClass.substringAfterLast('.')}")
             .get()
         val configuration = providers.gradleProperty("previewConfig")
-            .orElse("preview.properties")
+            .orElse("$previewProject/preview.properties")
             .get()
-        args(previewClass, outputDirectory, configuration)
+        args(previewProject, previewClass, outputDirectory, configuration)
     }
 }
 

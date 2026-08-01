@@ -13,7 +13,7 @@ public record ScreenLayout(
     Bounds panelLogical,
     Bounds panelScreen) {
 
-    BufferedImage toFramebuffer(BufferedImage logicalImage) {
+    public BufferedImage toFramebuffer(BufferedImage logicalImage) {
         BufferedImage framebuffer = new BufferedImage(screenWidth, screenHeight, BufferedImage.TYPE_INT_ARGB);
         Graphics2D graphics = framebuffer.createGraphics();
         graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);

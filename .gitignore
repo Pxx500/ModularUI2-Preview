@@ -1,6 +1,8 @@
 .gradle/
 build/
 output/
+logs/
+runtime-classpath.txt
 *.class
 .idea/
 .vscode/

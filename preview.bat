@@ -1,18 +1,28 @@
 @echo off
 setlocal
 
-if "%~1"=="" (
-    echo Usage: preview.bat fully.qualified.PreviewClass [output-directory]
+if "%~2"=="" (
+    echo Usage: preview.bat project-directory fully.qualified.PreviewClass [output-directory]
     exit /b 2
 )
 
 set "TOOL_ROOT=%~dp0."
-set "PREVIEW_CLASS=%~1"
+set "PREVIEW_PROJECT=%~f1"
+set "PREVIEW_CLASS=%~2"
+set "PREVIEW_DIST=%TOOL_ROOT%\build\install\modularui2-preview"
+set "PREVIEW_JAVA_FILE=%PREVIEW_DIST%\bin\java-executable.txt"
 
-if "%~2"=="" (
-    call "%TOOL_ROOT%\gradlew.bat" -p "%TOOL_ROOT%" preview "-PpreviewClass=%PREVIEW_CLASS%"
+if not exist "%PREVIEW_JAVA_FILE%" (
+    call "%TOOL_ROOT%\gradlew.bat" -p "%TOOL_ROOT%" installDist
+    if errorlevel 1 exit /b %ERRORLEVEL%
+)
+
+set /p PREVIEW_JAVA=<"%PREVIEW_JAVA_FILE%"
+
+if "%~3"=="" (
+    "%PREVIEW_JAVA%" -classpath "%PREVIEW_DIST%\lib\*" dev.modularui.preview.UiPreviewMain "%PREVIEW_PROJECT%" "%PREVIEW_CLASS%"
 ) else (
-    call "%TOOL_ROOT%\gradlew.bat" -p "%TOOL_ROOT%" preview "-PpreviewClass=%PREVIEW_CLASS%" "-PpreviewOutput=%~2"
+    "%PREVIEW_JAVA%" -classpath "%PREVIEW_DIST%\lib\*" dev.modularui.preview.UiPreviewMain "%PREVIEW_PROJECT%" "%PREVIEW_CLASS%" "%~3"
 )
 
 exit /b %ERRORLEVEL%
