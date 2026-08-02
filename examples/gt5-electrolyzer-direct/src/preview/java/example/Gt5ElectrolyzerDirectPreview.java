@@ -1,14 +1,17 @@
 package example;
 
+import com.cleanroommc.modularui.drawable.GuiTextures;
 import com.cleanroommc.modularui.drawable.UITexture;
 import com.cleanroommc.modularui.screen.ModularPanel;
+import com.cleanroommc.modularui.value.BoolValue;
 import com.cleanroommc.modularui.widget.Widget;
 import com.cleanroommc.modularui.widgets.ProgressWidget;
 import com.cleanroommc.modularui.widgets.TextWidget;
+import com.cleanroommc.modularui.widgets.ToggleButton;
 
 import dev.modularui.preview.PreviewEntrypoint;
 
-/** Visual-only extraction of the GT5 Basic Electrolyzer ModularUI2 layout. */
+/** Local extraction of the GT5 Basic Electrolyzer ModularUI2 layout. */
 public final class Gt5ElectrolyzerDirectPreview implements PreviewEntrypoint {
 
     private static final int SLOT_SIZE = 18;
@@ -17,8 +20,14 @@ public final class Gt5ElectrolyzerDirectPreview implements PreviewEntrypoint {
 
     private static final UITexture ITEM_SLOT = mui("textures/gui/slot/item.png");
     private static final UITexture FLUID_SLOT = mui("textures/gui/slot/fluid.png");
-    private static final UITexture DISABLED_BUTTON = gt("textures/gui/button/standard_toggle_disabled.png");
-    private static final UITexture MC_BUTTON = mui("textures/gui/widgets/mc_button.png");
+    private static final UITexture TOGGLE_BUTTON = UITexture.builder()
+        .location("gregtech", "textures/gui/button/standard_toggle.png")
+        .imageSize(SLOT_SIZE, SLOT_SIZE)
+        .adaptable(1)
+        .canApplyTheme()
+        .build();
+    private static final UITexture TOGGLE_BUTTON_RELEASED = TOGGLE_BUTTON.getSubArea(0F, 0F, 1F, 0.5F);
+    private static final UITexture TOGGLE_BUTTON_SELECTED = TOGGLE_BUTTON.getSubArea(0F, 0.5F, 1F, 1F);
 
     private static final UITexture CHARGER = gt("textures/gui/overlay_slot/charger.png");
     private static final UITexture CANISTER = gt("textures/gui/overlay_slot/canister.png");
@@ -27,8 +36,15 @@ public final class Gt5ElectrolyzerDirectPreview implements PreviewEntrypoint {
     private static final UITexture AUTOOUTPUT_FLUID = gt("textures/gui/overlay_button/autooutput_fluid.png");
     private static final UITexture AUTOOUTPUT_ITEM = gt("textures/gui/overlay_button/autooutput_item.png");
     private static final UITexture MUFFLE_OFF = gt("textures/gui/overlay_button/muffle_off.png");
+    private static final UITexture MUFFLE_ON = gt("textures/gui/overlay_button/muffle_on.png");
+    private static final UITexture POWER_OFF = gt("textures/gui/overlay_button/small_power_switch_off.png");
     private static final UITexture POWER_ON = gt("textures/gui/overlay_button/small_power_switch_on.png");
     private static final UITexture EXTRACT_PROGRESS = gt("textures/gui/progressbar/extract.png");
+
+    private final BoolValue fluidAutoOutput = new BoolValue(false);
+    private final BoolValue itemAutoOutput = new BoolValue(false);
+    private final BoolValue muffled = new BoolValue(false);
+    private final BoolValue powerEnabled = new BoolValue(true);
 
     @Override
     public String owner() {
@@ -70,16 +86,44 @@ public final class Gt5ElectrolyzerDirectPreview implements PreviewEntrypoint {
         }
     }
 
-    private static void addMachineControls(ModularPanel panel) {
-        panel.child(texture("autooutput-fluid", 7, 62, SLOT_SIZE, SLOT_SIZE, DISABLED_BUTTON, AUTOOUTPUT_FLUID))
-            .child(texture("autooutput-item", 25, 62, SLOT_SIZE, SLOT_SIZE, DISABLED_BUTTON, AUTOOUTPUT_ITEM))
+    private void addMachineControls(ModularPanel panel) {
+        panel.child(machineToggle("autooutput-fluid", 7, 62, SLOT_SIZE, fluidAutoOutput, AUTOOUTPUT_FLUID,
+            AUTOOUTPUT_FLUID))
+            .child(machineToggle("autooutput-item", 25, 62, SLOT_SIZE, itemAutoOutput, AUTOOUTPUT_ITEM,
+                AUTOOUTPUT_ITEM))
             .child(texture("fluid-input", 52, 62, SLOT_SIZE, SLOT_SIZE, FLUID_SLOT, CHARGER_FLUID))
             .child(texture("charger", 79, 62, SLOT_SIZE, SLOT_SIZE, ITEM_SLOT, CHARGER))
             .child(texture("fluid-output", 106, 62, SLOT_SIZE, SLOT_SIZE, FLUID_SLOT))
             .child(slot("special-slot", 124, 62))
             .child(slot("circuit-slot", 151, 62, CIRCUIT))
-            .child(texture("muffler", 160, 4, 12, 12, MC_BUTTON, MUFFLE_OFF))
-            .child(texture("power-switch", 160, 16, 12, 12, MC_BUTTON, POWER_ON));
+            .child(smallMachineToggle("muffler", 160, 4, muffled, MUFFLE_OFF, MUFFLE_ON))
+            .child(smallMachineToggle("power-switch", 160, 16, powerEnabled, POWER_OFF, POWER_ON));
+    }
+
+    private static ToggleButton machineToggle(String name, int x, int y, int size, BoolValue value,
+        UITexture releasedOverlay, UITexture selectedOverlay) {
+        return new ToggleButton().name(name)
+            .pos(x, y)
+            .size(size)
+            .value(value)
+            .background(false, TOGGLE_BUTTON_RELEASED)
+            .background(true, TOGGLE_BUTTON_SELECTED)
+            .overlay(false, releasedOverlay)
+            .overlay(true, selectedOverlay);
+    }
+
+    private static ToggleButton smallMachineToggle(String name, int x, int y, BoolValue value,
+        UITexture releasedOverlay, UITexture selectedOverlay) {
+        return new ToggleButton().name(name)
+            .pos(x, y)
+            .size(12)
+            .value(value)
+            .background(false, GuiTextures.MC_BUTTON)
+            .background(true, GuiTextures.MC_BUTTON_PRESSED)
+            .hoverBackground(false, GuiTextures.MC_BUTTON_HOVERED)
+            .hoverBackground(true, GuiTextures.MC_BUTTON_HOVERED_PRESSED)
+            .overlay(false, releasedOverlay)
+            .overlay(true, selectedOverlay);
     }
 
     private static void addPlayerInventory(ModularPanel panel) {

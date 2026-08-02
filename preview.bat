@@ -3,6 +3,8 @@ setlocal
 
 if "%~1"=="" (
     echo Usage: preview.bat project-directory [fully.qualified.PreviewClass] [output-directory]
+    echo        preview.bat project-directory --actions actions-file
+    echo        preview.bat project-directory --interactive
     exit /b 2
 )
 
@@ -23,8 +25,10 @@ if "%~2"=="" (
     "%PREVIEW_JAVA%" -Djoml.nounsafe=true -classpath "%PREVIEW_DIST%\lib\*" dev.modularui.preview.UiPreviewMain "%PREVIEW_PROJECT%"
 ) else if "%~3"=="" (
     "%PREVIEW_JAVA%" -Djoml.nounsafe=true -classpath "%PREVIEW_DIST%\lib\*" dev.modularui.preview.UiPreviewMain "%PREVIEW_PROJECT%" "%PREVIEW_CLASS%"
-) else (
+) else if "%~4"=="" (
     "%PREVIEW_JAVA%" -Djoml.nounsafe=true -classpath "%PREVIEW_DIST%\lib\*" dev.modularui.preview.UiPreviewMain "%PREVIEW_PROJECT%" "%PREVIEW_CLASS%" "%~3"
+) else (
+    "%PREVIEW_JAVA%" -Djoml.nounsafe=true -classpath "%PREVIEW_DIST%\lib\*" dev.modularui.preview.UiPreviewMain "%PREVIEW_PROJECT%" "%PREVIEW_CLASS%" "%~3" "%~4"
 )
 
 exit /b %ERRORLEVEL%

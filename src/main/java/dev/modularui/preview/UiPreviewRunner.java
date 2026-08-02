@@ -18,21 +18,26 @@ public final class UiPreviewRunner {
         throws IOException {
         try (PreviewSession session = PreviewEngine.open(projectRoot, className, screen)) {
             PreviewResult result = session.render();
-            Files.createDirectories(outputDirectory);
-            ImageIO.write(
-                result.image(),
-                "png",
-                outputDirectory.resolve("preview.png")
-                    .toFile());
-            Files.writeString(
-                outputDirectory.resolve("bounds.json"),
-                toJson(className, session, result),
-                StandardCharsets.UTF_8);
+            writeArtifacts(outputDirectory, className, session, result);
             return result;
         }
     }
 
-    private String toJson(String className, PreviewSession session, PreviewResult result) {
+    void writeArtifacts(Path outputDirectory, String className, PreviewSession session, PreviewResult result)
+        throws IOException {
+        Files.createDirectories(outputDirectory);
+        ImageIO.write(
+            result.image(),
+            "png",
+            outputDirectory.resolve("preview.png")
+                .toFile());
+        Files.writeString(
+            outputDirectory.resolve("bounds.json"),
+            toJson(className, session, result),
+            StandardCharsets.UTF_8);
+    }
+
+    String toJson(String className, PreviewSession session, PreviewResult result) {
         ScreenLayout layout = result.layout();
         StringBuilder json = new StringBuilder();
         json.append("{\n  \"schemaVersion\": 1");

@@ -1,6 +1,7 @@
 package net.minecraft.client;
 
 import java.io.FileNotFoundException;
+import net.minecraft.client.audio.SoundHandler;
 import net.minecraft.client.entity.EntityClientPlayerMP;
 import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.renderer.texture.TextureManager;
@@ -13,6 +14,7 @@ public class Minecraft {
     public final FontRenderer fontRenderer = new FontRenderer();
     public final TextureManager renderEngine = new TextureManager();
     public final EntityClientPlayerMP thePlayer = new EntityClientPlayerMP();
+    private final SoundHandler soundHandler = new SoundHandler();
     private final IResourceManager resourceManager = location -> {
         throw new FileNotFoundException(location.toString());
     };
@@ -23,6 +25,10 @@ public class Minecraft {
 
     public IResourceManager getResourceManager() {
         return resourceManager;
+    }
+
+    public SoundHandler getSoundHandler() {
+        return soundHandler;
     }
 
     public static long getSystemTime() {

@@ -1,6 +1,7 @@
 package dev.modularui.preview;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import example.ProjectClass;
@@ -173,6 +174,103 @@ class PreviewEngineTest {
     }
 
     @Test
+    void routesLocalMouseClicksThroughTheRealModularUiScreen() throws Exception {
+        Path projectRoot = Files.createDirectories(temporaryDirectory.resolve("interactive-panel-preview"));
+        writeInteractivePanelEntrypoint(projectRoot);
+
+        try (PreviewSession session = PreviewEngine.open(
+            projectRoot,
+            "example.InteractivePanelPreview",
+            new PreviewScreen(800, 600, 1))) {
+            WidgetBounds button = session.widgets()
+                .stream()
+                .filter(widget -> widget.type()
+                    .equals("ButtonWidget"))
+                .findFirst()
+                .orElseThrow();
+            assertTrue(containsColor(session.render().image(), button.screen(), 0xFFFF5555));
+
+            session.moveMouse(button.screen().x() + button.screen().width() / 2,
+                button.screen().y() + button.screen().height() / 2);
+            assertTrue(session.click(MouseButton.LEFT));
+
+            assertTrue(containsColor(session.render().image(), button.screen(), 0xFF55FF55));
+            assertTrue(session.press(MouseButton.RIGHT));
+            assertTrue(containsColor(session.render().image(), button.screen(), 0xFF5555FF));
+            assertTrue(session.release(MouseButton.RIGHT));
+            assertTrue(containsColor(session.render().image(), button.screen(), 0xFFFFFF55));
+            assertTrue(session.scroll(ScrollDirection.DOWN, 2));
+            assertTrue(containsColor(session.render().image(), button.screen(), 0xFF55FFFF));
+            session.moveMouse(0, 0);
+            session.render();
+        }
+    }
+
+    @Test
+    void executesScriptedActionsInOneLiveSessionAndCapturesTheResult() throws Exception {
+        Path projectRoot = Files.createDirectories(temporaryDirectory.resolve("scripted-panel-preview"));
+        Path output = temporaryDirectory.resolve("scripted-output");
+        Path actions = temporaryDirectory.resolve("actions.txt");
+        writeInteractivePanelEntrypoint(projectRoot);
+        Files.writeString(actions, "move-widget 0/0\nclick left\ncapture clicked\n");
+
+        new PreviewActionRunner().run(
+            projectRoot,
+            "example.InteractivePanelPreview",
+            actions,
+            output,
+            new PreviewScreen(800, 600, 1));
+
+        Path capture = output.resolve("captures/clicked");
+        assertTrue(containsColor(ImageIO.read(capture.resolve("preview.png").toFile()),
+            new Bounds(380, 290, 40, 20), 0xFF55FF55));
+        assertTrue(Files.readString(capture.resolve("bounds.json"))
+            .contains("\"ButtonWidget\""));
+        assertTrue(Files.readString(capture.resolve("actions.json"))
+            .contains("\"handled\": true"));
+    }
+
+    @Test
+    void reportsTheSourceLineForAMissingScriptedWidgetPath() throws Exception {
+        Path projectRoot = Files.createDirectories(temporaryDirectory.resolve("invalid-scripted-panel-preview"));
+        Path actions = temporaryDirectory.resolve("invalid-actions.txt");
+        writeInteractivePanelEntrypoint(projectRoot);
+        Files.writeString(actions, "move-widget 0/99\n");
+
+        IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
+            () -> new PreviewActionRunner().run(
+                projectRoot,
+                "example.InteractivePanelPreview",
+                actions,
+                temporaryDirectory.resolve("invalid-scripted-output"),
+                new PreviewScreen(800, 600, 1)));
+
+        assertTrue(failure.getMessage()
+            .contains("invalid-actions.txt:1"));
+        assertTrue(failure.getMessage()
+            .contains("0/99"));
+    }
+
+    @Test
+    void reportsTheSourceLineForAnUnknownScriptedActionBeforeOpeningTheProject() throws Exception {
+        Path actions = temporaryDirectory.resolve("unknown-actions.txt");
+        Files.writeString(actions, "# first line\ndance\n");
+
+        IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
+            () -> new PreviewActionRunner().run(
+                temporaryDirectory.resolve("project-does-not-need-to-open"),
+                "example.MissingPreview",
+                actions,
+                temporaryDirectory.resolve("unknown-scripted-output"),
+                new PreviewScreen(800, 600, 1)));
+
+        assertTrue(failure.getMessage()
+            .contains("unknown-actions.txt:2"));
+        assertTrue(failure.getMessage()
+            .contains("dance"));
+    }
+
+    @Test
     void reportsAnExtensionServiceWhoseProviderCannotBeLoaded() throws Exception {
         Path projectRoot = Files.createDirectories(temporaryDirectory.resolve("machine-preview"));
         Path libraries = Files.createDirectories(projectRoot.resolve("libs"));
@@ -287,6 +385,51 @@ class PreviewEngineTest {
                                 throw new IllegalStateException("linked sync handler was not initialised");
                             }
                         }
+                    }
+                }
+                """);
+    }
+
+    private static void writeInteractivePanelEntrypoint(Path projectRoot) throws Exception {
+        Path source = projectRoot.resolve("src/preview/java/example/InteractivePanelPreview.java");
+        Files.createDirectories(source.getParent());
+        Files.writeString(
+            source,
+            """
+                package example;
+
+                import com.cleanroommc.modularui.api.drawable.IKey;
+                import com.cleanroommc.modularui.screen.ModularPanel;
+                import com.cleanroommc.modularui.widgets.ButtonWidget;
+                import com.cleanroommc.modularui.widgets.TextWidget;
+                import dev.modularui.preview.PreviewEntrypoint;
+
+                public final class InteractivePanelPreview implements PreviewEntrypoint {
+                    private int color = 0xFFFF5555;
+
+                    @Override
+                    public Object createPanel(PreviewEntrypoint.Context context) {
+                        return ModularPanel.defaultPanel("interactive_panel", 176, 100)
+                            .child(new ButtonWidget<>()
+                                .name("toggle")
+                                .pos(68, 40)
+                                .size(40, 20)
+                                .onMousePressed(mouseButton -> {
+                                    color = mouseButton == 1 ? 0xFF5555FF : 0xFF55FF55;
+                                    return true;
+                                })
+                                .onMouseReleased(mouseButton -> {
+                                    if (mouseButton == 1) color = 0xFFFFFF55;
+                                    return true;
+                                })
+                                .onMouseScrolled((direction, amount) -> {
+                                    color = 0xFF55FFFF;
+                                    return true;
+                                })
+                                .child(new TextWidget<>(IKey.dynamic(() -> color == 0xFFFF5555 ? "OFF" : "ON"))
+                                    .color(() -> color)
+                                    .shadow(false)
+                                    .coverChildren()));
                     }
                 }
                 """);

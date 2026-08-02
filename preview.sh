@@ -1,8 +1,10 @@
 #!/usr/bin/env sh
 set -eu
 
-if [ "$#" -lt 1 ] || [ "$#" -gt 3 ]; then
-    echo "Usage: ./preview.sh project-directory [fully.qualified.PreviewClass] [output-directory]" >&2
+if [ "$#" -lt 1 ] || [ "$#" -gt 4 ]; then
+    echo "Usage: ./preview.sh project-directory [fully.qualified.PreviewClass] [output-directory] [configuration]" >&2
+    echo "       ./preview.sh project-directory --actions actions-file" >&2
+    echo "       ./preview.sh project-directory --interactive" >&2
     exit 2
 fi
 
@@ -28,7 +30,10 @@ if [ "$#" -eq 1 ]; then
 fi
 
 preview_class=$2
-if [ "$#" -eq 3 ]; then
+if [ "$#" -ge 3 ]; then
+    if [ "$#" -eq 4 ]; then
+        exec "$preview_java" -Djoml.nounsafe=true -classpath "$runtime_dist/lib/*" dev.modularui.preview.UiPreviewMain "$runtime_project" "$preview_class" "$3" "$4"
+    fi
     exec "$preview_java" -Djoml.nounsafe=true -classpath "$runtime_dist/lib/*" dev.modularui.preview.UiPreviewMain "$runtime_project" "$preview_class" "$3"
 fi
 

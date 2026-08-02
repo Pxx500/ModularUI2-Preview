@@ -6,7 +6,9 @@ import dev.modularui.preview.PreviewDrawContext;
 import dev.modularui.preview.PreviewResult;
 import dev.modularui.preview.PreviewScreen;
 import dev.modularui.preview.PreviewSession;
+import dev.modularui.preview.MouseButton;
 import dev.modularui.preview.ScreenLayout;
+import dev.modularui.preview.ScrollDirection;
 import dev.modularui.preview.WidgetBounds;
 import dev.modularui.preview.assets.AssetResolver;
 import dev.modularui.preview.project.PreviewProject;
@@ -107,6 +109,9 @@ public final class ProjectRuntime implements AutoCloseable {
             Path codeSource = codeSource(panelClass);
             ScreenLayout layout = previewScreen.layout(bounds.width(), bounds.height());
             List<WidgetBounds> widgets = captureWidgets(panel, bounds, layout);
+            Object context = invoke(screenClass, screen, "getContext", new Class<?>[0]);
+            Class<?> contextClass = loadClass("com.cleanroommc.modularui.screen.viewport.GuiContext");
+            Class<?> scrollDirectionClass = loadClass("com.cleanroommc.modularui.api.UpOrDown");
             Class<?> panelManagerClass = loadClass("com.cleanroommc.modularui.screen.PanelManager");
             Object panelManager = invoke(screenClass, screen, "getPanelManager", new Class<?>[0]);
             AutoCloseable lifecycle = () -> withContextClassLoader(classLoader, () -> {
@@ -125,7 +130,34 @@ public final class ProjectRuntime implements AutoCloseable {
                 bounds,
                 codeSource,
                 widgets,
-                () -> render(screenClass, screen, previewScreen, layout, widgets, assets, translations));
+                new PreviewSession.Interaction() {
+
+                    @Override
+                    public void moveMouse(int screenX, int screenY) {
+                        withContextClassLoader(classLoader, () -> {
+                            invoke(contextClass, context, "updateState",
+                                new Class<?>[] { int.class, int.class, float.class },
+                                layout.toLogicalX(screenX), layout.toLogicalY(screenY), 0F);
+                            invoke(screenClass, screen, "onFrameUpdate", new Class<?>[0]);
+                        });
+                    }
+
+                    @Override
+                    public boolean press(MouseButton button) {
+                        return dispatchMouse(screenClass, screen, button.modularUiCode(), true);
+                    }
+
+                    @Override
+                    public boolean release(MouseButton button) {
+                        return dispatchMouse(screenClass, screen, button.modularUiCode(), false);
+                    }
+
+                    @Override
+                    public boolean scroll(ScrollDirection direction, int amount) {
+                        return dispatchScroll(screenClass, screen, scrollDirectionClass, direction, amount);
+                    }
+                },
+                () -> render(screenClass, screen, panel, bounds, previewScreen, layout, assets, translations));
         } catch (ClassNotFoundException exception) {
             throw new IllegalStateException("Could not load preview runtime class", exception);
         } finally {
@@ -134,8 +166,9 @@ public final class ProjectRuntime implements AutoCloseable {
         }
     }
 
-    private PreviewResult render(Class<?> screenClass, Object screen, PreviewScreen previewScreen, ScreenLayout layout,
-        List<WidgetBounds> widgets, AssetResolver assets, AssetResolver.Translations translations) {
+    private PreviewResult render(Class<?> screenClass, Object screen, Object panel, Bounds panelBounds,
+        PreviewScreen previewScreen, ScreenLayout layout, AssetResolver assets,
+        AssetResolver.Translations translations) {
         BufferedImage logicalImage = new BufferedImage(
             layout.logicalWidth(),
             layout.logicalHeight(),
@@ -156,7 +189,40 @@ public final class ProjectRuntime implements AutoCloseable {
             StatCollector.clearTranslations();
             graphics.dispose();
         }
+        List<WidgetBounds> widgets = captureWidgets(panel, panelBounds, layout);
         return new PreviewResult(layout.toFramebuffer(logicalImage), layout, widgets, List.of(), renderedAssets);
+    }
+
+    private boolean dispatchMouse(Class<?> screenClass, Object screen, int button, boolean pressed) {
+        final boolean[] handled = new boolean[1];
+        withContextClassLoader(classLoader, () -> {
+            boolean handledPre = (Boolean) invoke(screenClass, screen, "onMouseInputPre",
+                new Class<?>[] { int.class, boolean.class }, button, pressed);
+            if (!handledPre) {
+                String method = pressed ? "onMousePressed" : "onMouseRelease";
+                handled[0] = (Boolean) invoke(screenClass, screen, method, new Class<?>[] { int.class }, button);
+            } else {
+                handled[0] = true;
+            }
+        });
+        return handled[0];
+    }
+
+    private boolean dispatchScroll(Class<?> screenClass, Object screen, Class<?> directionClass,
+        ScrollDirection direction, int amount) {
+        final boolean[] handled = new boolean[1];
+        withContextClassLoader(classLoader, () -> {
+            Object runtimeDirection;
+            try {
+                runtimeDirection = directionClass.getField(direction.name())
+                    .get(null);
+            } catch (ReflectiveOperationException exception) {
+                throw reflectionFailure("Could not map the mouse scroll direction", exception);
+            }
+            handled[0] = (Boolean) invoke(screenClass, screen, "onMouseScroll",
+                new Class<?>[] { directionClass, int.class }, runtimeDirection, amount);
+        });
+        return handled[0];
     }
 
     private AssetResolver createAssetResolver(PreviewProject project) {

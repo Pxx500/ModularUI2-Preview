@@ -234,6 +234,37 @@ The Galaxia Oxygen Filler under `integrations/galaxia-oxygen-filler` demonstrate
 
 The normal direct-panel project does not need any of these directories.
 
+## Interactive preview
+
+Open the configured panel in a desktop window:
+
+```bat
+preview.bat project-directory --interactive
+```
+
+Mouse hover, left and right button presses, releases, clicks, and wheel scrolling are sent to the real ModularUI2 screen. The panel stays alive until the window is closed, so local widget callbacks can change the next rendered frame. This mode does not simulate a Minecraft server or network-backed behavior.
+
+For repeatable agent-driven interaction, create a text file such as `actions.txt`:
+
+```text
+# Coordinates use the full preview framebuffer.
+move 960 540
+click left
+
+# Widget paths come from bounds.json, for example 0/3/1.
+move-widget 0/3/1
+scroll down 2
+capture after-scroll
+```
+
+Run the full file in one live session:
+
+```bat
+preview.bat project-directory --actions actions.txt
+```
+
+Available commands are `move x y`, `move-widget path`, `press left|right`, `release left|right`, `click left|right`, `scroll up|down [amount]`, and `capture name`. Each capture is written below `output/<PreviewClass>/captures/<name>/` as `preview.png`, `bounds.json`, and `actions.json`. Invalid commands and missing widget paths report the source line.
+
 ## Command reference
 
 Use the entrypoint from `preview.properties`:
@@ -257,7 +288,9 @@ preview.bat project-directory fully.qualified.PreviewClass output/my-iteration
 The shell launcher accepts the same arguments:
 
 ```sh
-./preview.sh project-directory [fully.qualified.PreviewClass] [output-directory]
+./preview.sh project-directory [fully.qualified.PreviewClass] [output-directory] [configuration]
+./preview.sh project-directory --interactive
+./preview.sh project-directory --actions actions-file
 ```
 
 ## Output artifacts
@@ -280,7 +313,7 @@ The runtime executes real `ModularPanel`, `ModularScreen`, `ModularContainer`, s
 
 The production acceptance surface covers rectangles, text, ModularUI2 textures, progress bars, empty item slots, player inventory, and full-screen GUI scaling.
 
-The headless Minecraft/OpenGL boundary is intentionally smaller than the game. Entity rendering, non-empty item-stack icons, custom shaders or framebuffers, and mod-specific direct OpenGL code are not complete. A reachable missing ABI is a previewer implementation gap; do not replace production GUI code with an invented lookalike to hide it.
+The headless Minecraft/OpenGL boundary is intentionally smaller than the game. Entity rendering, non-empty item-stack icons, custom shaders or framebuffers, and mod-specific direct OpenGL code are not complete. Keyboard input, text entry, drag-and-drop, animation ticks, hot reload, and server/network simulation are not part of the local interaction host. A reachable missing ABI is a previewer implementation gap; do not replace production GUI code with an invented lookalike to hide it.
 
 ## Troubleshooting
 

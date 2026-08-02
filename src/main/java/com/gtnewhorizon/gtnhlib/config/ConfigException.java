@@ -1,0 +1,8 @@
+package com.gtnewhorizon.gtnhlib.config;
+
+public class ConfigException extends Exception {
+
+    public ConfigException(String message) {
+        super(message);
+    }
+}

@@ -13,6 +13,14 @@ public record ScreenLayout(
     Bounds panelLogical,
     Bounds panelScreen) {
 
+    public int toLogicalX(int screenX) {
+        return Math.floorDiv(screenX, guiScale);
+    }
+
+    public int toLogicalY(int screenY) {
+        return Math.floorDiv(screenY, guiScale);
+    }
+
     public BufferedImage toFramebuffer(BufferedImage logicalImage) {
         BufferedImage framebuffer = new BufferedImage(screenWidth, screenHeight, BufferedImage.TYPE_INT_ARGB);
         Graphics2D graphics = framebuffer.createGraphics();
