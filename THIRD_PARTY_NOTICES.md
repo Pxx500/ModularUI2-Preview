@@ -41,6 +41,18 @@ Copyright 1999-2012 Apache Software Foundation
 These products include software developed at The Apache Software Foundation.
 `ResolverUtil.java` in Log4j Core is Copyright 2005-2006 Tim Fennell.
 
+## MIT and BSD notices
+
+JOML is Copyright (c) 2015-2024 JOML.
+
+Checker Framework qualifiers are Copyright 2004-present by the Checker
+Framework developers.
+
+JSR 305 annotations are Copyright (c) 2007-2009, JSR305 expert group.
+
+The applicable terms are in `LICENSES/MIT.txt` and
+`LICENSES/BSD-3-Clause.txt`.
+
 ## Minecraft assets
 
 Minecraft assets are not included in this project. The previewer reads the
