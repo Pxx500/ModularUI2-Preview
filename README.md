@@ -1,13 +1,15 @@
 # ModularUI2 Preview
 
-Render real ModularUI2 Java layouts without starting Minecraft. The previewer compiles a small Java project, runs the real ModularUI2 screen lifecycle in a headless runtime, and writes a full-screen PNG plus machine-readable layout data.
+Preview and interact with real ModularUI2 Java layouts without starting Minecraft. The previewer compiles a small Java project and runs the real ModularUI2 screen lifecycle in a local runtime. It can open the GUI in a clickable desktop window, rebuild that window as files change, or render a full-screen PNG with machine-readable layout data for automated inspection.
 
 The normal workflow is deliberately small:
 
 1. copy or write `ModularPanel` construction code;
 2. add the textures used by that code;
-3. run one script;
-4. inspect `preview.png` and iterate.
+3. choose a workflow:
+   - `open` to click and inspect the GUI manually;
+   - `watch` to keep an interactive window open while editing Java, textures, or configuration;
+   - `render` to produce `preview.png`, `bounds.json`, and optional scripted interaction captures.
 
 The preview project uses normal ModularUI2 classes and widget APIs. There is no second layout language to translate back into production code.
 
@@ -75,19 +77,31 @@ RetroFuturaGradle.
 
 ## Try the included GUI
 
-From the repository root, run:
+From the repository root, open the GT5 Basic Electrolyzer in an interactive desktop window:
 
 ```bat
-preview.bat render examples\gt5-electrolyzer-direct
+preview.bat open examples\gt5-electrolyzer-direct
 ```
 
 On Linux or macOS:
 
 ```sh
-./preview.sh render examples/gt5-electrolyzer-direct
+./preview.sh open examples/gt5-electrolyzer-direct
 ```
 
-The example is a visual-only extraction of the production GT5 Basic Electrolyzer layout. Its textures are copied from the GT5 production assets used by the layout.
+The example is a visual extraction of the production GT5 Basic Electrolyzer layout. Its textures are copied from the GT5 production assets used by the layout. Hover and click its local toggle buttons to verify pressed, hovered, and changed widget states. Interaction runs entirely inside the previewer; it does not simulate a Minecraft server or machine backend.
+
+Use `watch` instead of `open` while editing the example. A successful rebuild replaces the displayed GUI. A compilation or render failure leaves the last working GUI visible and retries after the next file change:
+
+```bat
+preview.bat watch examples\gt5-electrolyzer-direct
+```
+
+Use `render` when you need artifacts for a screenshot comparison or an agent rather than a desktop window:
+
+```bat
+preview.bat render examples\gt5-electrolyzer-direct
+```
 
 For a minimal project intended to be copied and edited, run:
 
@@ -136,13 +150,13 @@ gui.scale=auto
 screen.background=#101820
 ```
 
-Edit `src/preview/java/example/StarterPanelPreview.java` and replace the starter panel with production-shaped layout code. Render it with:
+Edit `src/preview/java/example/StarterPanelPreview.java` and replace the starter panel with production-shaped layout code. Open it interactively with:
 
 ```bat
-preview.bat render my-machine-preview
+preview.bat open my-machine-preview
 ```
 
-The previewer compiles every `.java` file below `src/preview/java` on each run.
+Switch to `watch` for continuous rebuilding, or use `render` when you need PNG and JSON artifacts. The previewer compiles every `.java` file below `src/preview/java` on each run.
 
 ## Add textures
 
