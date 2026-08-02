@@ -34,6 +34,33 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Provision Minecraft 1.7.10 client
+        shell: python
+        run: |
+          import hashlib
+          import os
+          from pathlib import Path
+          import time
+          from urllib.request import urlretrieve
+
+          expected_sha1 = "e80d9b3bf5085002218d4be59e668bac718abbc6"
+          client = Path(os.environ["RUNNER_TEMP"]) / "minecraft-1.7.10-client.jar"
+          url = f"https://launcher.mojang.com/v1/objects/{expected_sha1}/client.jar"
+          for attempt in range(3):
+              try:
+                  urlretrieve(url, client)
+                  break
+              except OSError:
+                  if attempt == 2:
+                      raise
+                  time.sleep(2)
+          actual_sha1 = hashlib.sha1(client.read_bytes()).hexdigest()
+          if actual_sha1 != expected_sha1:
+              raise RuntimeError(
+                  f"Minecraft client SHA-1 mismatch: expected {expected_sha1}, got {actual_sha1}")
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as environment:
+              environment.write(f"MODULARUI2_PREVIEW_MINECRAFT_JAR={client}\n")
+
       - name: Make Gradle wrapper executable
         if: runner.os != 'Windows'
         run: chmod +x gradlew
