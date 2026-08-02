@@ -43,10 +43,14 @@ dependencies {
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
+val distributionZip = tasks.named<Zip>("distZip")
+
 tasks.test {
     useJUnitPlatform()
+    dependsOn(distributionZip)
 
     doFirst {
+        systemProperty("preview.distribution.zip", distributionZip.get().archiveFile.get().asFile)
         systemProperty(
             "modularui.test.jar",
             bundledRuntime.single { it.name.startsWith("ModularUI2-") })
@@ -62,27 +66,28 @@ application {
 distributions {
     named("main") {
         contents {
+            from("preview.bat")
+            from("preview.sh") {
+                filePermissions {
+                    unix("rwxr-xr-x")
+                }
+            }
+            from("README.md")
             from("LICENSE")
             from("LICENSES") {
                 into("LICENSES")
             }
             from("THIRD_PARTY_NOTICES.md")
-            from("examples/gt5-electrolyzer-direct/NOTICE.md") {
-                into("examples/gt5-electrolyzer-direct")
+            from("examples") {
+                into("examples")
             }
         }
     }
 }
 
-val previewJavaLauncher = javaToolchains.launcherFor {
-    languageVersion.set(JavaLanguageVersion.of(21))
-}
-
-tasks.named<Sync>("installDist") {
-    doLast {
-        destinationDir.resolve("bin/java-executable.txt")
-            .writeText(previewJavaLauncher.get().executablePath.asFile.absolutePath)
-    }
+tasks.named<Tar>("distTar") {
+    compression = Compression.GZIP
+    archiveExtension.set("tar.gz")
 }
 
 tasks.register<JavaExec>("preview") {

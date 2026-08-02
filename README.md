@@ -19,6 +19,12 @@ The preview project uses normal ModularUI2 classes and widget APIs. There is no 
 
 Gradle does not need to be installed separately.
 
+## Install a release
+
+Download the ZIP on Windows or the `tar.gz` archive on Linux and macOS, extract it, and run `preview.bat help` or `./preview.sh help`. Release archives already contain the compiled previewer and do not require Gradle. They still require JDK 21 because preview projects compile Java source code on every build.
+
+The launchers use `JAVA_HOME` when it is set, otherwise they use `java` and `javac` from `PATH`. A JRE without `javac` is not sufficient.
+
 ## Minecraft font
 
 The previewer uses the original Minecraft 1.7.10 font from the developer's
