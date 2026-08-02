@@ -59,6 +59,21 @@ application {
     applicationDefaultJvmArgs = listOf("-Djoml.nounsafe=true")
 }
 
+distributions {
+    named("main") {
+        contents {
+            from("LICENSE")
+            from("LICENSES") {
+                into("LICENSES")
+            }
+            from("THIRD_PARTY_NOTICES.md")
+            from("examples/gt5-electrolyzer-direct/NOTICE.md") {
+                into("examples/gt5-electrolyzer-direct")
+            }
+        }
+    }
+}
+
 val previewJavaLauncher = javaToolchains.launcherFor {
     languageVersion.set(JavaLanguageVersion.of(21))
 }
