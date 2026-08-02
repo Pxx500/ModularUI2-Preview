@@ -1,14 +1,13 @@
 #!/usr/bin/env sh
 set -eu
 
-if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
-    echo "Usage: ./preview.sh project-directory fully.qualified.PreviewClass [output-directory]" >&2
+if [ "$#" -lt 1 ] || [ "$#" -gt 3 ]; then
+    echo "Usage: ./preview.sh project-directory [fully.qualified.PreviewClass] [output-directory]" >&2
     exit 2
 fi
 
 tool_root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 preview_project=$(CDPATH= cd -- "$1" && pwd)
-preview_class=$2
 preview_dist="$tool_root/build/install/modularui2-preview"
 preview_java_file="$preview_dist/bin/java-executable.txt"
 
@@ -17,9 +16,20 @@ if [ ! -f "$preview_java_file" ]; then
 fi
 
 preview_java=$(head -n 1 "$preview_java_file")
-
-if [ "$#" -eq 3 ]; then
-    exec "$preview_java" -classpath "$preview_dist/lib/*" dev.modularui.preview.UiPreviewMain "$preview_project" "$preview_class" "$3"
+runtime_project=$preview_project
+runtime_dist=$preview_dist
+if command -v cygpath >/dev/null 2>&1; then
+    runtime_project=$(cygpath -w "$preview_project")
+    runtime_dist=$(cygpath -w "$preview_dist")
 fi
 
-exec "$preview_java" -classpath "$preview_dist/lib/*" dev.modularui.preview.UiPreviewMain "$preview_project" "$preview_class"
+if [ "$#" -eq 1 ]; then
+    exec "$preview_java" -Djoml.nounsafe=true -classpath "$runtime_dist/lib/*" dev.modularui.preview.UiPreviewMain "$runtime_project"
+fi
+
+preview_class=$2
+if [ "$#" -eq 3 ]; then
+    exec "$preview_java" -Djoml.nounsafe=true -classpath "$runtime_dist/lib/*" dev.modularui.preview.UiPreviewMain "$runtime_project" "$preview_class" "$3"
+fi
+
+exec "$preview_java" -Djoml.nounsafe=true -classpath "$runtime_dist/lib/*" dev.modularui.preview.UiPreviewMain "$runtime_project" "$preview_class"

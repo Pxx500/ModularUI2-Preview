@@ -9,13 +9,10 @@ import java.awt.image.BufferedImage;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.nio.charset.StandardCharsets;
 import javax.imageio.ImageIO;
-import java.util.jar.Attributes;
 import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
-import java.util.jar.Manifest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -69,73 +66,6 @@ class PreviewEngineTest {
     }
 
     @Test
-    void rejectsAModularUiVersionOutsideTheRuntimeProfile() throws Exception {
-        Path projectRoot = Files.createDirectories(temporaryDirectory.resolve("machine-preview"));
-        Path libraries = Files.createDirectories(projectRoot.resolve("libs"));
-        Manifest manifest = new Manifest();
-        manifest.getMainAttributes()
-            .put(Attributes.Name.MANIFEST_VERSION, "1.0");
-        manifest.getMainAttributes()
-            .put(Attributes.Name.IMPLEMENTATION_TITLE, "ModularUI2");
-        manifest.getMainAttributes()
-            .put(Attributes.Name.IMPLEMENTATION_VERSION, "2.3.83-1.7.10");
-        writeJar(
-            libraries.resolve("modularui.jar"),
-            manifest,
-            "example.MachinePreview.class",
-            "com/cleanroommc/modularui/api/IGuiHolder.class");
-        PreviewEngine.Preflight result = PreviewEngine.preflight(projectRoot, "example.MachinePreview");
-
-        assertEquals(PreviewEngine.Status.FAILED, result.status());
-        assertTrue(result.diagnostics()
-            .stream()
-            .anyMatch(diagnostic -> diagnostic.code()
-                .equals("compatibility.modularui.version") && diagnostic.message()
-                    .contains("2.3.83-1.7.10")));
-    }
-
-    @Test
-    void reportsRequiredModularUiAbiSymbolsMissingFromTheArtifact() throws Exception {
-        Path projectRoot = Files.createDirectories(temporaryDirectory.resolve("machine-preview"));
-        Path libraries = Files.createDirectories(projectRoot.resolve("libs"));
-        Manifest manifest = modularUiManifest("2.3.84-1.7.10");
-        writeJar(
-            libraries.resolve("modularui.jar"),
-            manifest,
-            "example/MachinePreview.class",
-            "com/cleanroommc/modularui/api/IGuiHolder.class");
-
-        PreviewEngine.Preflight result = PreviewEngine.preflight(projectRoot, "example.MachinePreview");
-
-        assertEquals(PreviewEngine.Status.FAILED, result.status());
-        assertTrue(result.diagnostics()
-            .stream()
-            .anyMatch(diagnostic -> diagnostic.code()
-                .equals("compatibility.modularui.missing-symbol") && diagnostic.message()
-                    .contains("com.cleanroommc.modularui.drawable.UITexture")));
-    }
-
-    @Test
-    void rejectsAnIncompatibleVersionDeclaredInTheRealModMetadataFormat() throws Exception {
-        Path projectRoot = Files.createDirectories(temporaryDirectory.resolve("machine-preview"));
-        Path libraries = Files.createDirectories(projectRoot.resolve("libs"));
-        writeModularUiJar(
-            libraries.resolve("modularui.jar"),
-            "2.3.83-1.7.10",
-            "example/MachinePreview.class",
-            "com/cleanroommc/modularui/api/IGuiHolder.class");
-
-        PreviewEngine.Preflight result = PreviewEngine.preflight(projectRoot, "example.MachinePreview");
-
-        assertEquals(PreviewEngine.Status.FAILED, result.status());
-        assertTrue(result.diagnostics()
-            .stream()
-            .anyMatch(diagnostic -> diagnostic.code()
-                .equals("compatibility.modularui.version") && diagnostic.message()
-                    .contains("2.3.83-1.7.10")));
-    }
-
-    @Test
     void reportsDeterministicResourceShadowingAcrossRuntimeArtifacts() throws Exception {
         Path projectRoot = Files.createDirectories(temporaryDirectory.resolve("machine-preview"));
         Path libraries = Files.createDirectories(projectRoot.resolve("libs"));
@@ -157,13 +87,9 @@ class PreviewEngineTest {
     }
 
     @Test
-    void acceptsAPortableProjectWithTheRealSupportedModularUiArtifact() throws Exception {
-        Path projectRoot = Files.createDirectories(temporaryDirectory.resolve("machine-preview"));
+    void acceptsAPortableProjectWithoutCopyingModularUiIntoTheProject() throws Exception {
+        Path projectRoot = Files.createDirectories(temporaryDirectory.resolve("standalone-preview"));
         Path libraries = Files.createDirectories(projectRoot.resolve("libs"));
-        Files.copy(
-            Path.of(System.getProperty("modularui.test.jar")),
-            libraries.resolve("modularui.jar"),
-            StandardCopyOption.REPLACE_EXISTING);
         writeClassJar(libraries.resolve("preview-entrypoint.jar"), ProjectClass.class);
 
         PreviewEngine.Preflight result = PreviewEngine.preflight(projectRoot, ProjectClass.class.getName());
@@ -174,14 +100,35 @@ class PreviewEngineTest {
     }
 
     @Test
+    void rendersTheBundledGt5ExampleWithoutAnExternalClasspath() throws Exception {
+        Path projectRoot = Path.of("examples/gt5-electrolyzer-direct")
+            .toAbsolutePath()
+            .normalize();
+        assertTrue(Files.notExists(projectRoot.resolve("runtime-classpath.txt")));
+
+        try (PreviewSession session = PreviewEngine.open(
+            projectRoot,
+            "example.Gt5ElectrolyzerDirectPreview",
+            new PreviewScreen(1920, 1080, 0))) {
+            PreviewResult result = session.render();
+
+            assertEquals(1920, result.image().getWidth());
+            assertEquals(1080, result.image().getHeight());
+            assertTrue(result.warnings().isEmpty());
+            assertTrue(result.assetSources()
+                .stream()
+                .anyMatch(source -> source.replace('\\', '/')
+                    .endsWith("assets/gregtech/textures/gui/progressbar/extract.png")));
+            assertEquals(
+                Path.of(System.getProperty("modularui.test.jar")).toRealPath(),
+                session.panelCodeSource().toRealPath());
+        }
+    }
+
+    @Test
     void opensARealModularUiPanelWithALinkedSyncHandlerAndUsesItsLayoutAndArtifact() throws Exception {
         Path projectRoot = Files.createDirectories(temporaryDirectory.resolve("real-panel-preview"));
-        Path libraries = Files.createDirectories(projectRoot.resolve("libs"));
-        Path modularUiJar = libraries.resolve("modularui.jar");
-        Files.copy(
-            Path.of(System.getProperty("modularui.test.jar")),
-            modularUiJar,
-            StandardCopyOption.REPLACE_EXISTING);
+        Path modularUiJar = Path.of(System.getProperty("modularui.test.jar"));
         Path classes = projectRoot.resolve("build/classes/java/preview");
         Path texture = projectRoot.resolve("src/preview/resources/assets/example/textures/gui/colors.png");
         Files.createDirectories(texture.getParent());
@@ -354,23 +301,6 @@ class PreviewEngineTest {
         return false;
     }
 
-    private static void writeJar(Path file, Manifest manifest, String... entries) throws Exception {
-        try (JarOutputStream jar = new JarOutputStream(Files.newOutputStream(file), manifest)) {
-            writeEntries(jar, entries);
-        }
-    }
-
-    private static Manifest modularUiManifest(String version) {
-        Manifest manifest = new Manifest();
-        manifest.getMainAttributes()
-            .put(Attributes.Name.MANIFEST_VERSION, "1.0");
-        manifest.getMainAttributes()
-            .put(Attributes.Name.IMPLEMENTATION_TITLE, "ModularUI2");
-        manifest.getMainAttributes()
-            .put(Attributes.Name.IMPLEMENTATION_VERSION, version);
-        return manifest;
-    }
-
     private static void writeEntries(JarOutputStream jar, String... entries) throws Exception {
         for (String entry : entries) {
             jar.putNextEntry(new JarEntry(entry));
@@ -399,13 +329,4 @@ class PreviewEngineTest {
         }
     }
 
-    private static void writeModularUiJar(Path file, String version, String... entries) throws Exception {
-        try (JarOutputStream jar = new JarOutputStream(Files.newOutputStream(file))) {
-            writeEntries(jar, entries);
-            jar.putNextEntry(new JarEntry("mcmod.info"));
-            jar.write(("[{\"modid\":\"modularui2\",\"version\":\"" + version + "\"}]")
-                .getBytes(StandardCharsets.UTF_8));
-            jar.closeEntry();
-        }
-    }
 }

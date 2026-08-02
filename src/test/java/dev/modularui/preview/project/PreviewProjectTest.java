@@ -1,6 +1,7 @@
 package dev.modularui.preview.project;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -52,6 +53,26 @@ class PreviewProjectTest {
         PreviewProject project = PreviewProject.open(projectRoot);
 
         assertEquals(List.of(productionClasses, externalLibrary), project.productionRuntime());
-        assertEquals(List.of(productionClasses, externalLibrary), project.runtimeArtifacts());
+        assertTrue(project.runtimeArtifacts().containsAll(List.of(productionClasses, externalLibrary)));
+    }
+
+    @Test
+    void suppliesTheBundledModularUiRuntimeToEveryProject() throws Exception {
+        Path projectRoot = Files.createDirectories(temporaryDirectory.resolve("standalone-preview"));
+        Path modularUiArtifact = Path.of(System.getProperty("modularui.test.jar"))
+            .toRealPath();
+
+        PreviewProject project = PreviewProject.open(projectRoot);
+
+        assertTrue(project.runtimeArtifacts()
+            .stream()
+            .map(path -> {
+                try {
+                    return path.toRealPath();
+                } catch (java.io.IOException exception) {
+                    throw new java.io.UncheckedIOException(exception);
+                }
+            })
+            .anyMatch(modularUiArtifact::equals));
     }
 }

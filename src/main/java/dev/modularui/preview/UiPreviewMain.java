@@ -1,10 +1,11 @@
 package dev.modularui.preview;
 
+import dev.modularui.preview.project.PreviewProject;
 import java.nio.file.Path;
 
 public final class UiPreviewMain {
 
-    private static final int MIN_ARGUMENTS = 2;
+    private static final int MIN_ARGUMENTS = 1;
     private static final int MAX_ARGUMENTS = 4;
 
     private UiPreviewMain() {}
@@ -12,11 +13,14 @@ public final class UiPreviewMain {
     public static void main(String[] args) throws Exception {
         if (args.length < MIN_ARGUMENTS || args.length > MAX_ARGUMENTS) {
             throw new IllegalArgumentException(
-                "Usage: <project-directory> <preview-class> [output-directory] [configuration]");
+                "Usage: <project-directory> [preview-class] [output-directory] [configuration]");
         }
         Path projectRoot = Path.of(args[0])
             .toAbsolutePath();
-        String className = args[1];
+        String className = args.length >= 2 ? args[1] : PreviewProject.open(projectRoot)
+            .property("preview.entrypoint")
+            .orElseThrow(() -> new IllegalArgumentException(
+                "Missing preview.entrypoint in " + projectRoot.resolve("preview.properties")));
         Path outputDirectory = Path.of(args.length >= 3 ? args[2] : "output/" + simpleName(className))
             .toAbsolutePath();
         Path configuration = Path.of(args.length == MAX_ARGUMENTS ? args[3] : projectRoot.resolve("preview.properties")

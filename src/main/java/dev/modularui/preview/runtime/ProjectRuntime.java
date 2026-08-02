@@ -161,9 +161,7 @@ public final class ProjectRuntime implements AutoCloseable {
 
     private AssetResolver createAssetResolver(PreviewProject project) {
         List<Path> assetSources = new ArrayList<>(project.assetSources());
-        assetSources.addAll(project.productionRuntime());
-        assetSources.addAll(project.libraries());
-        assetSources.addAll(project.extensions());
+        assetSources.addAll(project.runtimeArtifacts());
         return new AssetResolver(assetSources);
     }
 

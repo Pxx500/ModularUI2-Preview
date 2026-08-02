@@ -13,16 +13,15 @@ repositories {
 
 java {
     toolchain {
-        languageVersion.set(JavaLanguageVersion.of(25))
+        languageVersion.set(JavaLanguageVersion.of(21))
     }
 }
 
-val preview by sourceSets.creating {
-    java.srcDir("src/preview/java")
-    resources.srcDir("src/preview/resources")
-}
+val bundledRuntime by configurations.creating
 
-preview.compileClasspath += sourceSets.main.get().output
+configurations.named(sourceSets.main.get().runtimeOnlyConfigurationName) {
+    extendsFrom(bundledRuntime)
+}
 
 dependencies {
     implementation("com.google.code.gson:gson:2.10.1")
@@ -33,7 +32,10 @@ dependencies {
     implementation("org.apache.commons:commons-lang3:3.15.0")
     implementation("org.joml:joml:1.10.8")
 
-    add(preview.implementationConfigurationName, "com.github.GTNewHorizons:ModularUI2:2.3.84-1.7.10:dev") {
+    add(bundledRuntime.name, "com.github.GTNewHorizons:ModularUI2:2.3.84-1.7.10:dev") {
+        isTransitive = false
+    }
+    add(bundledRuntime.name, "com.github.GTNewHorizons:ModularUI:1.3.4:dev") {
         isTransitive = false
     }
 
@@ -41,27 +43,24 @@ dependencies {
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
-sourceSets.test {
-    compileClasspath += preview.output + preview.compileClasspath
-    runtimeClasspath += preview.output + preview.runtimeClasspath
-}
-
 tasks.test {
     useJUnitPlatform()
 
     doFirst {
-        val modularUiClasspath = preview.compileClasspath - sourceSets.main.get().output
-        systemProperty("modularui.test.jar", modularUiClasspath.singleFile)
+        systemProperty(
+            "modularui.test.jar",
+            bundledRuntime.single { it.name.startsWith("ModularUI2-") })
     }
 }
 
 application {
     applicationName = "modularui2-preview"
     mainClass.set("dev.modularui.preview.UiPreviewMain")
+    applicationDefaultJvmArgs = listOf("-Djoml.nounsafe=true")
 }
 
 val previewJavaLauncher = javaToolchains.launcherFor {
-    languageVersion.set(JavaLanguageVersion.of(25))
+    languageVersion.set(JavaLanguageVersion.of(21))
 }
 
 tasks.named<Sync>("installDist") {
@@ -74,8 +73,7 @@ tasks.named<Sync>("installDist") {
 tasks.register<JavaExec>("preview") {
     group = "application"
     description = "Renders a production-shaped ModularUI2 screen to preview.png and bounds.json."
-    classpath = sourceSets.main.get().runtimeClasspath + preview.output +
-        (preview.runtimeClasspath - preview.output)
+    classpath = sourceSets.main.get().runtimeClasspath
     mainClass.set("dev.modularui.preview.UiPreviewMain")
 
     doFirst {

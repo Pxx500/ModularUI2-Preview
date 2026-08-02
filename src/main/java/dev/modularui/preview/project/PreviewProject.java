@@ -19,17 +19,23 @@ import java.util.stream.Stream;
 
 public final class PreviewProject {
 
+    private static final List<String> BUNDLED_RUNTIME_ARTIFACTS = List.of(
+        "ModularUI2-2.3.84-1.7.10-dev.jar",
+        "ModularUI-1.3.4-dev.jar");
+
     private final Path root;
     private final List<Path> assetSources;
+    private final List<Path> bundledRuntime;
     private final List<Path> productionRuntime;
     private final List<Path> libraries;
     private final List<Path> extensions;
     private final Map<String, String> properties;
 
-    private PreviewProject(Path root, List<Path> assetSources, List<Path> productionRuntime, List<Path> libraries,
-        List<Path> extensions, Map<String, String> properties) {
+    private PreviewProject(Path root, List<Path> assetSources, List<Path> bundledRuntime, List<Path> productionRuntime,
+        List<Path> libraries, List<Path> extensions, Map<String, String> properties) {
         this.root = root;
         this.assetSources = assetSources;
+        this.bundledRuntime = bundledRuntime;
         this.productionRuntime = productionRuntime;
         this.libraries = libraries;
         this.extensions = extensions;
@@ -47,6 +53,7 @@ public final class PreviewProject {
         return new PreviewProject(
             normalizedRoot,
             assetSources,
+            locateBundledRuntime(),
             loadRuntimeClasspath(normalizedRoot, normalizedRoot.resolve("runtime-classpath.txt")),
             discoverJars(normalizedRoot.resolve("libs")),
             discoverJars(normalizedRoot.resolve("extensions")),
@@ -85,7 +92,11 @@ public final class PreviewProject {
             throw new IllegalArgumentException("Could not create preview class output: " + output, exception);
         }
 
-        String projectClasspath = Stream.of(productionRuntime.stream(), libraries.stream(), extensions.stream())
+        String projectClasspath = Stream.of(
+            bundledRuntime.stream(),
+            productionRuntime.stream(),
+            libraries.stream(),
+            extensions.stream())
             .flatMap(stream -> stream)
             .map(Path::toString)
             .collect(java.util.stream.Collectors.joining(File.pathSeparator));
@@ -129,10 +140,28 @@ public final class PreviewProject {
         return Stream.of(
             Stream.of(root.resolve("build/classes/java/preview"))
                 .filter(Files::isDirectory),
+            bundledRuntime.stream(),
             productionRuntime.stream(),
             libraries.stream(),
             extensions.stream())
             .flatMap(stream -> stream)
+            .toList();
+    }
+
+    private static List<Path> locateBundledRuntime() {
+        Map<String, Path> classpath = Stream.of(
+            System.getProperty("java.class.path", "").split(java.util.regex.Pattern.quote(File.pathSeparator)))
+            .filter(entry -> !entry.isBlank())
+            .map(Path::of)
+            .filter(Files::isRegularFile)
+            .collect(java.util.stream.Collectors.toMap(
+                path -> path.getFileName().toString(),
+                path -> path.toAbsolutePath().normalize(),
+                (first, ignored) -> first));
+        return BUNDLED_RUNTIME_ARTIFACTS.stream()
+            .map(name -> Optional.ofNullable(classpath.get(name))
+                .orElseThrow(() -> new IllegalStateException(
+                    "The bundled runtime artifact is missing from the previewer distribution: " + name)))
             .toList();
     }
 

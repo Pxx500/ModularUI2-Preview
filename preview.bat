@@ -1,8 +1,8 @@
 @echo off
 setlocal
 
-if "%~2"=="" (
-    echo Usage: preview.bat project-directory fully.qualified.PreviewClass [output-directory]
+if "%~1"=="" (
+    echo Usage: preview.bat project-directory [fully.qualified.PreviewClass] [output-directory]
     exit /b 2
 )
 
@@ -19,10 +19,12 @@ if not exist "%PREVIEW_JAVA_FILE%" (
 
 set /p PREVIEW_JAVA=<"%PREVIEW_JAVA_FILE%"
 
-if "%~3"=="" (
-    "%PREVIEW_JAVA%" -classpath "%PREVIEW_DIST%\lib\*" dev.modularui.preview.UiPreviewMain "%PREVIEW_PROJECT%" "%PREVIEW_CLASS%"
+if "%~2"=="" (
+    "%PREVIEW_JAVA%" -Djoml.nounsafe=true -classpath "%PREVIEW_DIST%\lib\*" dev.modularui.preview.UiPreviewMain "%PREVIEW_PROJECT%"
+) else if "%~3"=="" (
+    "%PREVIEW_JAVA%" -Djoml.nounsafe=true -classpath "%PREVIEW_DIST%\lib\*" dev.modularui.preview.UiPreviewMain "%PREVIEW_PROJECT%" "%PREVIEW_CLASS%"
 ) else (
-    "%PREVIEW_JAVA%" -classpath "%PREVIEW_DIST%\lib\*" dev.modularui.preview.UiPreviewMain "%PREVIEW_PROJECT%" "%PREVIEW_CLASS%" "%~3"
+    "%PREVIEW_JAVA%" -Djoml.nounsafe=true -classpath "%PREVIEW_DIST%\lib\*" dev.modularui.preview.UiPreviewMain "%PREVIEW_PROJECT%" "%PREVIEW_CLASS%" "%~3"
 )
 
 exit /b %ERRORLEVEL%
