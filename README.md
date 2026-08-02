@@ -98,8 +98,8 @@ preview.bat render examples\starter-panel
 The result is written to:
 
 ```text
-output/Gt5ElectrolyzerDirectPreview/preview.png
-output/Gt5ElectrolyzerDirectPreview/bounds.json
+output/StarterPanelPreview/preview.png
+output/StarterPanelPreview/bounds.json
 ```
 
 The first launch builds the local previewer distribution. Warm renders normally finish in one or two seconds.
@@ -124,10 +124,6 @@ my-machine-preview/
           StarterPanelPreview.java
       resources/
         assets/
-          mymod/
-            textures/
-              gui/
-                machine.png
 ```
 
 The generated `preview.properties` selects the Java entrypoint and the simulated monitor:

@@ -30,6 +30,10 @@ final class PreviewInputQueue {
         add(PreviewInput.Stop.INSTANCE);
     }
 
+    synchronized void resetForNewSession() {
+        inputs.removeIf(input -> input != PreviewInput.Stop.INSTANCE);
+    }
+
     synchronized PreviewInput take() throws InterruptedException {
         while (inputs.isEmpty()) wait();
         return inputs.removeFirst();

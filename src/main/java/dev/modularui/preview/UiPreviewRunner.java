@@ -2,13 +2,19 @@ package dev.modularui.preview;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 import javax.imageio.ImageIO;
 
 public final class UiPreviewRunner {
+
+    private static final List<String> ARTIFACT_NAMES = List.of("preview.png", "bounds.json");
 
     public PreviewResult preview(Path projectRoot, String className, Path outputDirectory) throws IOException {
         return preview(projectRoot, className, outputDirectory, PreviewScreen.fullHd());
@@ -26,15 +32,129 @@ public final class UiPreviewRunner {
     void writeArtifacts(Path outputDirectory, String className, PreviewSession session, PreviewResult result)
         throws IOException {
         Files.createDirectories(outputDirectory);
-        ImageIO.write(
-            result.image(),
-            "png",
-            outputDirectory.resolve("preview.png")
-                .toFile());
-        Files.writeString(
-            outputDirectory.resolve("bounds.json"),
-            toJson(className, session, result),
-            StandardCharsets.UTF_8);
+        Path transaction = Files.createTempDirectory(outputDirectory, ".preview-artifacts-");
+        try {
+            ImageIO.write(result.image(), "png", transaction.resolve("preview.png").toFile());
+            Files.writeString(
+                transaction.resolve("bounds.json"),
+                toJson(className, session, result),
+                StandardCharsets.UTF_8);
+            commitArtifacts(outputDirectory, transaction);
+        } catch (IOException | RuntimeException | Error failure) {
+            cleanupAfterFailure(transaction, failure);
+            throw failure;
+        }
+        cleanupQuietly(transaction);
+    }
+
+    private void commitArtifacts(Path outputDirectory, Path transaction) throws IOException {
+        List<String> backedUp = new ArrayList<>();
+        List<String> installed = new ArrayList<>();
+        for (String name : ARTIFACT_NAMES) {
+            Path target = outputDirectory.resolve(name);
+            if (Files.exists(target) && !Files.isRegularFile(target)) {
+                throw new IOException("Preview artifact target is not a regular file: " + target);
+            }
+        }
+        try {
+            for (String name : ARTIFACT_NAMES) {
+                Path target = outputDirectory.resolve(name);
+                if (!Files.exists(target)) continue;
+                Files.move(target, transaction.resolve(name + ".backup"), StandardCopyOption.REPLACE_EXISTING);
+                backedUp.add(name);
+            }
+            for (String name : ARTIFACT_NAMES) {
+                Files.move(
+                    transaction.resolve(name),
+                    outputDirectory.resolve(name),
+                    StandardCopyOption.REPLACE_EXISTING);
+                installed.add(name);
+            }
+        } catch (IOException failure) {
+            rollbackArtifacts(outputDirectory, transaction, installed, backedUp, failure);
+            throw failure;
+        }
+    }
+
+    private void rollbackArtifacts(Path outputDirectory, Path transaction, List<String> installed,
+        List<String> backedUp, IOException failure) {
+        Collections.reverse(installed);
+        for (String name : installed) {
+            try {
+                Files.deleteIfExists(outputDirectory.resolve(name));
+            } catch (IOException rollbackFailure) {
+                failure.addSuppressed(rollbackFailure);
+            }
+        }
+        Collections.reverse(backedUp);
+        for (String name : backedUp) {
+            try {
+                Files.move(
+                    transaction.resolve(name + ".backup"),
+                    outputDirectory.resolve(name),
+                    StandardCopyOption.REPLACE_EXISTING);
+            } catch (IOException rollbackFailure) {
+                failure.addSuppressed(rollbackFailure);
+            }
+        }
+    }
+
+    private void cleanupAfterFailure(Path transaction, Throwable failure) {
+        try {
+            cleanupCandidateArtifacts(transaction);
+        } catch (IOException cleanupFailure) {
+            failure.addSuppressed(cleanupFailure);
+        }
+    }
+
+    private void cleanupCandidateArtifacts(Path transaction) throws IOException {
+        IOException failure = null;
+        for (String name : ARTIFACT_NAMES) {
+            try {
+                Files.deleteIfExists(transaction.resolve(name));
+            } catch (IOException cleanupFailure) {
+                if (failure == null) failure = cleanupFailure;
+                else failure.addSuppressed(cleanupFailure);
+            }
+        }
+        try {
+            Files.deleteIfExists(transaction);
+        } catch (DirectoryNotEmptyException ignored) {
+            // An incomplete rollback leaves last-good backups here for recovery.
+        } catch (IOException cleanupFailure) {
+            if (failure == null) failure = cleanupFailure;
+            else failure.addSuppressed(cleanupFailure);
+        }
+        if (failure != null) throw failure;
+    }
+
+    private void cleanupQuietly(Path transaction) {
+        try {
+            cleanup(transaction);
+        } catch (IOException ignored) {
+            // Published artifacts are valid; a stale transaction directory is harmless.
+        }
+    }
+
+    private void cleanup(Path transaction) throws IOException {
+        IOException failure = null;
+        for (String name : ARTIFACT_NAMES) {
+            for (Path path : List.of(transaction.resolve(name), transaction.resolve(name + ".backup"))) {
+                try {
+                    Files.deleteIfExists(path);
+                } catch (IOException cleanupFailure) {
+                    if (failure == null) failure = cleanupFailure;
+                    else failure.addSuppressed(cleanupFailure);
+                }
+            }
+        }
+        try {
+            Files.deleteIfExists(transaction);
+        } catch (IOException cleanupFailure) {
+            if (failure == null) failure = cleanupFailure;
+            else failure.addSuppressed(cleanupFailure);
+        }
+        if (failure != null) throw failure;
     }
 
     String toJson(String className, PreviewSession session, PreviewResult result) {

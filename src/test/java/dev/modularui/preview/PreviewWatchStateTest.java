@@ -1,5 +1,6 @@
 package dev.modularui.preview;
 
+import dev.modularui.preview.project.PreviewProject;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -19,7 +20,7 @@ class PreviewWatchStateTest {
     @Test
     void snapshotChangesForPreviewAssetsConfigurationAndRuntimeInputs() throws Exception {
         Path project = temporaryDirectory.resolve("watched-preview");
-        PreviewProjectInitializer.initialize(project);
+        PreviewProject.initialize(project);
         Path configuration = project.resolve("preview.properties");
         PreviewInputSnapshot initial = PreviewInputSnapshot.capture(project, configuration);
 

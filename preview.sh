@@ -20,7 +20,14 @@ if [ -z "$preview_javac" ] || [ ! -x "$preview_javac" ]; then
     exit 2
 fi
 
-java_version=$("$preview_java" -version 2>&1 | awk 'NR == 1 { for (field = 1; field <= NF; field++) if (match($field, /[0-9]+([.][0-9]+)*/)) { print substr($field, RSTART, RLENGTH); exit } }')
+java_version=$("$preview_java" -version 2>&1 | awk '
+    $1 == "java" && $2 == "version" { value = $3 }
+    $1 == "openjdk" { value = $2 == "version" ? $3 : $2 }
+    value != "" && match(value, /[0-9]+([.][0-9]+)*/) {
+        print substr(value, RSTART, RLENGTH)
+        exit
+    }
+')
 java_major=${java_version%%.*}
 case "$java_major" in
     ''|*[!0-9]*)

@@ -90,27 +90,6 @@ tasks.named<Tar>("distTar") {
     archiveExtension.set("tar.gz")
 }
 
-tasks.register<JavaExec>("preview") {
-    group = "application"
-    description = "Renders a production-shaped ModularUI2 screen to preview.png and bounds.json."
-    classpath = sourceSets.main.get().runtimeClasspath
-    mainClass.set("dev.modularui.preview.UiPreviewMain")
-
-    doFirst {
-        val previewProject = providers.gradleProperty("previewProject").orNull
-            ?: throw GradleException("Missing preview project. Use -PpreviewProject=path/to/project")
-        val previewClass = providers.gradleProperty("previewClass").orNull
-            ?: throw GradleException("Missing preview class. Use -PpreviewClass=fully.qualified.ClassName")
-        val outputDirectory = providers.gradleProperty("previewOutput")
-            .orElse("output/${previewClass.substringAfterLast('.')}")
-            .get()
-        val configuration = providers.gradleProperty("previewConfig")
-            .orElse("$previewProject/preview.properties")
-            .get()
-        args(previewProject, previewClass, outputDirectory, configuration)
-    }
-}
-
 tasks.register("agentVerify") {
     group = "verification"
     description = "Runs the complete verification suite used by coding agents."

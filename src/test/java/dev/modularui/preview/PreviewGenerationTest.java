@@ -1,5 +1,6 @@
 package dev.modularui.preview;
 
+import dev.modularui.preview.project.PreviewProject;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -20,7 +21,7 @@ class PreviewGenerationTest {
     void failedReplacementLeavesTheLastSuccessfulSessionUsable() throws Exception {
         Path project = temporaryDirectory.resolve("watched-preview");
         Path generations = project.resolve("build/preview-generations");
-        PreviewProjectInitializer.initialize(project);
+        PreviewProject.initialize(project);
         Path source = project.resolve("src/preview/java/example/StarterPanelPreview.java");
         String validSource = Files.readString(source, StandardCharsets.UTF_8);
         Path firstRoot;

@@ -19,6 +19,7 @@ import java.util.stream.Stream;
 
 public final class PreviewProject {
 
+    private static final String TEMPLATE_ROOT = "/dev/modularui/preview/template/";
     private static final List<String> BUNDLED_RUNTIME_ARTIFACTS = List.of(
         "ModularUI2-2.3.84-1.7.10-dev.jar",
         "ModularUI-1.3.4-dev.jar");
@@ -42,6 +43,41 @@ public final class PreviewProject {
         this.libraries = libraries;
         this.extensions = extensions;
         this.properties = properties;
+    }
+
+    public static void initialize(Path projectRoot) {
+        ensureEmpty(projectRoot);
+        try {
+            Files.createDirectories(projectRoot.resolve("src/preview/resources/assets"));
+            copyTemplate("preview.properties", projectRoot.resolve("preview.properties"));
+            copyTemplate(
+                "StarterPanelPreview.java",
+                projectRoot.resolve("src/preview/java/example/StarterPanelPreview.java"));
+        } catch (IOException exception) {
+            throw new IllegalArgumentException("Could not create preview project at " + projectRoot, exception);
+        }
+    }
+
+    private static void ensureEmpty(Path projectRoot) {
+        if (!Files.exists(projectRoot)) return;
+        if (!Files.isDirectory(projectRoot)) {
+            throw new IllegalArgumentException("Preview project target is not a directory: " + projectRoot);
+        }
+        try (var files = Files.list(projectRoot)) {
+            if (files.findAny().isPresent()) {
+                throw new IllegalArgumentException("Preview project target is not empty: " + projectRoot);
+            }
+        } catch (IOException exception) {
+            throw new IllegalArgumentException("Could not inspect preview project target: " + projectRoot, exception);
+        }
+    }
+
+    private static void copyTemplate(String resourceName, Path target) throws IOException {
+        Files.createDirectories(target.getParent());
+        try (InputStream source = PreviewProject.class.getResourceAsStream(TEMPLATE_ROOT + resourceName)) {
+            if (source == null) throw new IOException("Missing packaged preview template: " + resourceName);
+            Files.copy(source, target);
+        }
     }
 
     public static PreviewProject open(Path root) {

@@ -62,10 +62,12 @@ public final class UiPreviewMain {
     }
 
     private static void initialize(Path projectRoot, PrintStream output) {
-        PreviewProjectInitializer.initialize(projectRoot);
+        PreviewProject.initialize(projectRoot);
         output.println("Preview project created: " + projectRoot);
-        output.println("Render it: preview.bat render \"" + projectRoot + "\"");
-        output.println("Watch it: preview.bat watch \"" + projectRoot + "\"");
+        output.println("Render on Windows: preview.bat render \"" + projectRoot + "\"");
+        output.println("Render on Linux/macOS: ./preview.sh render \"" + projectRoot + "\"");
+        output.println("Watch on Windows: preview.bat watch \"" + projectRoot + "\"");
+        output.println("Watch on Linux/macOS: ./preview.sh watch \"" + projectRoot + "\"");
     }
 
     private static void render(PreviewCommand command, Path projectRoot, String className, Path outputDirectory,

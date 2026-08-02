@@ -96,6 +96,7 @@ public final class PreviewWindow {
                     watchState.observe(PreviewInputSnapshot.capture(projectRoot, configuration), System.nanoTime());
                 } catch (RuntimeException snapshotFailure) {
                     window.showError(snapshotFailure);
+                    continue;
                 }
                 if (!watchState.rebuildReady(System.nanoTime())) continue;
                 window.showBuilding("Rebuilding preview...");
@@ -125,8 +126,7 @@ public final class PreviewWindow {
                 className,
                 candidate.session(),
                 candidate.initialResult());
-            window.setImage(candidate.initialResult().image());
-            window.clearStatus();
+            window.installGeneration(candidate.initialResult().image());
             close(active, window);
             return candidate;
         } catch (Throwable rebuildFailure) {
@@ -253,6 +253,15 @@ public final class PreviewWindow {
             SwingUtilities.invokeLater(() -> canvas.setImage(image));
         }
 
+        private void installGeneration(BufferedImage image) throws InterruptedException, InvocationTargetException {
+            SwingUtilities.invokeAndWait(() -> {
+                canvas.installGeneration(image);
+                status.setText("");
+                status.setToolTipText(null);
+                status.setVisible(false);
+            });
+        }
+
         private void showBuilding(String text) {
             SwingUtilities.invokeLater(() -> setStatus(text, new Color(0xFFF3CD), new Color(0x664D03)));
         }
@@ -268,14 +277,6 @@ public final class PreviewWindow {
                     .replace("<", "&lt;")
                     .replace(">", "&gt;")
                     .replace("\n", "<br>") + "</html>");
-            });
-        }
-
-        private void clearStatus() {
-            SwingUtilities.invokeLater(() -> {
-                status.setText("");
-                status.setToolTipText(null);
-                status.setVisible(false);
             });
         }
 
@@ -332,6 +333,11 @@ public final class PreviewWindow {
         private void setImage(BufferedImage image) {
             this.image = image;
             repaint();
+        }
+
+        private void installGeneration(BufferedImage image) {
+            inputs.resetForNewSession();
+            setImage(image);
         }
 
         private void move(MouseEvent event) {

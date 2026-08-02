@@ -10,7 +10,7 @@ if not exist "%PREVIEW_LAUNCHER%" (
     set "PREVIEW_LAUNCHER=%TOOL_ROOT%\build\install\modularui2-preview\bin\modularui2-preview.bat"
     if not exist "%PREVIEW_LAUNCHER%" (
         call "%TOOL_ROOT%\gradlew.bat" -p "%TOOL_ROOT%" installDist
-        if errorlevel 1 exit /b %ERRORLEVEL%
+        if errorlevel 1 exit /b 1
     )
 )
 
@@ -45,7 +45,8 @@ if not exist "%PREVIEW_JAVAC%" if not "%PREVIEW_JAVAC%"=="javac.exe" (
 
 set "PREVIEW_JAVA_VERSION="
 for /f "tokens=1,2,3" %%A in ('"%PREVIEW_JAVA%" -version 2^>^&1') do if not defined PREVIEW_JAVA_VERSION (
-    if /i "%%B"=="version" (set "PREVIEW_JAVA_VERSION=%%~C") else set "PREVIEW_JAVA_VERSION=%%~B"
+    if /i "%%B"=="version" set "PREVIEW_JAVA_VERSION=%%~C"
+    if /i "%%A"=="openjdk" if /i not "%%B"=="version" set "PREVIEW_JAVA_VERSION=%%~B"
 )
 for /f "tokens=1 delims=." %%V in ("%PREVIEW_JAVA_VERSION%") do set "PREVIEW_JAVA_MAJOR=%%V"
 set "PREVIEW_JAVA_MAJOR_NUMBER=0"

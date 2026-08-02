@@ -1,5 +1,6 @@
 package dev.modularui.preview;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -97,5 +98,41 @@ class UiPreviewMainTest {
         assertEquals(0, rendered, errorBytes.toString(StandardCharsets.UTF_8));
         assertTrue(Files.isRegularFile(outputDirectory.resolve("preview.png")));
         assertTrue(Files.isRegularFile(outputDirectory.resolve("bounds.json")));
+    }
+
+    @Test
+    void failedArtifactPublicationPreservesThePreviousPreview() throws Exception {
+        Path project = temporaryDirectory.resolve("transactional-preview");
+        Path outputDirectory = temporaryDirectory.resolve("transactional-output");
+        ByteArrayOutputStream outputBytes = new ByteArrayOutputStream();
+        ByteArrayOutputStream errorBytes = new ByteArrayOutputStream();
+        PrintStream output = new PrintStream(outputBytes, true, StandardCharsets.UTF_8);
+        PrintStream error = new PrintStream(errorBytes, true, StandardCharsets.UTF_8);
+
+        assertEquals(0, UiPreviewMain.run(new String[] { "init", project.toString() }, output, error));
+        assertEquals(0, UiPreviewMain.run(
+            new String[] { "render", project.toString(), "--output", outputDirectory.toString() },
+            output,
+            error));
+        byte[] previousPreview = Files.readAllBytes(outputDirectory.resolve("preview.png"));
+
+        Path source = project.resolve("src/preview/java/example/StarterPanelPreview.java");
+        Files.writeString(
+            source,
+            Files.readString(source, StandardCharsets.UTF_8)
+                .replace("Edit the Java class", "Changed candidate image"),
+            StandardCharsets.UTF_8);
+        Files.delete(outputDirectory.resolve("bounds.json"));
+        Files.createDirectory(outputDirectory.resolve("bounds.json"));
+        outputBytes.reset();
+        errorBytes.reset();
+
+        int failed = UiPreviewMain.run(
+            new String[] { "render", project.toString(), "--output", outputDirectory.toString() },
+            output,
+            error);
+
+        assertEquals(1, failed);
+        assertArrayEquals(previousPreview, Files.readAllBytes(outputDirectory.resolve("preview.png")));
     }
 }
