@@ -16,8 +16,16 @@ public final class PreviewEngine {
 
     public static PreviewSession open(Path projectRoot, String entrypoint, PreviewScreen screen) {
         PreviewProject project = PreviewProject.open(projectRoot);
+        return open(project, entrypoint, screen);
+    }
+
+    static PreviewSession open(Path projectRoot, String entrypoint, PreviewScreen screen, Path compiledOutput) {
+        return open(PreviewProject.open(projectRoot, compiledOutput), entrypoint, screen);
+    }
+
+    private static PreviewSession open(PreviewProject project, String entrypoint, PreviewScreen screen) {
         project.compileSources();
-        Preflight preflight = preflight(projectRoot, entrypoint);
+        Preflight preflight = ProjectPreflight.inspect(project, entrypoint);
         if (preflight.status() == Status.FAILED) {
             throw new IllegalArgumentException("Preview project preflight failed: " + preflight.diagnostics());
         }

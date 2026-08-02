@@ -20,7 +20,10 @@ final class ProjectPreflight {
         if (!Files.isDirectory(normalizedRoot)) {
             return failed("project.root.missing", "Preview project directory does not exist: " + normalizedRoot);
         }
-        PreviewProject project = PreviewProject.open(normalizedRoot);
+        return inspect(PreviewProject.open(normalizedRoot), entrypoint);
+    }
+
+    static Preflight inspect(PreviewProject project, String entrypoint) {
         ProjectArtifactIndex index = ProjectArtifactIndex.inspect(project);
         List<Diagnostic> diagnostics = new ArrayList<>(index.diagnostics());
         diagnostics.addAll(RuntimeProfile.validate(index.classOwners()));

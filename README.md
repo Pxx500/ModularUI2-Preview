@@ -224,6 +224,14 @@ preview.bat open project-directory
 
 Mouse hover, left and right button presses, releases, clicks, and wheel scrolling are sent to the real ModularUI2 screen. The panel stays alive until the window is closed, so local widget callbacks can change the next rendered frame. This mode does not simulate a Minecraft server or network-backed behavior.
 
+For continuous layout work, watch the project instead:
+
+```bat
+preview.bat watch project-directory
+```
+
+The previewer waits until changed Java, assets, configuration, or runtime inputs have remained stable for 300 milliseconds, then compiles a fresh UI session. A successful build replaces the displayed session and updates `preview.png` and `bounds.json`. A failed build leaves the last successful layout visible and marks it stale below the simulated monitor; the next file change retries automatically.
+
 For repeatable agent-driven interaction, create a text file such as `actions.txt`:
 
 ```text
@@ -269,6 +277,7 @@ Open an interactive window or show command help:
 
 ```bat
 preview.bat open project-directory
+preview.bat watch project-directory
 preview.bat help
 ```
 
@@ -278,6 +287,7 @@ The shell launcher accepts the same commands:
 ./preview.sh init project-directory
 ./preview.sh render project-directory [--class name] [--output directory] [--config file] [--actions file]
 ./preview.sh open project-directory [--class name] [--config file]
+./preview.sh watch project-directory [--class name] [--output directory] [--config file]
 ./preview.sh help
 ```
 

@@ -48,11 +48,15 @@ public final class UiPreviewMain {
             ? Path.of("output", simpleName(className))
                 .toAbsolutePath()
             : command.outputDirectory();
+        if (command.mode() == PreviewCommand.Mode.WATCH) {
+            new PreviewWindow().watch(projectRoot, className, outputDirectory, configuration);
+            return;
+        }
         PreviewScreen screen = PreviewScreen.load(configuration);
 
         switch (command.mode()) {
             case RENDER -> render(command, projectRoot, className, outputDirectory, screen, output);
-            case OPEN, WATCH -> new PreviewWindow().open(projectRoot, className, screen);
+            case OPEN -> new PreviewWindow().open(projectRoot, className, screen);
             default -> throw new IllegalArgumentException("Unsupported preview command: " + command.mode());
         }
     }

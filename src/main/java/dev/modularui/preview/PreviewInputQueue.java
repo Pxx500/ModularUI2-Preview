@@ -35,6 +35,19 @@ final class PreviewInputQueue {
         return inputs.removeFirst();
     }
 
+    synchronized PreviewInput poll(long timeoutMillis) throws InterruptedException {
+        if (timeoutMillis < 0) throw new IllegalArgumentException("Input poll timeout cannot be negative");
+        long remainingNanos = timeoutMillis * 1_000_000;
+        long deadline = System.nanoTime() + remainingNanos;
+        while (inputs.isEmpty() && remainingNanos > 0) {
+            long millis = remainingNanos / 1_000_000;
+            int nanos = (int) (remainingNanos % 1_000_000);
+            wait(millis, nanos);
+            remainingNanos = deadline - System.nanoTime();
+        }
+        return inputs.isEmpty() ? null : inputs.removeFirst();
+    }
+
     synchronized List<PreviewInput> drain() {
         List<PreviewInput> drained = new ArrayList<>(inputs);
         inputs.clear();
