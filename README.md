@@ -25,6 +25,17 @@ Download the ZIP on Windows or the `tar.gz` archive on Linux and macOS, extract 
 
 The launchers use `JAVA_HOME` when it is set, otherwise they use `java` and `javac` from `PATH`. A JRE without `javac` is not sufficient.
 
+## Publish a release
+
+Push a version tag to build and publish the release archives:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+GitHub Actions verifies the project and attaches a versioned ZIP and `tar.gz` archive to the tag's release. Regular pushes and pull requests run verification without publishing a release.
+
 ## Minecraft font
 
 The previewer uses the original Minecraft 1.7.10 font from the developer's

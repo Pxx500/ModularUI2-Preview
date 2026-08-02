@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "dev.modularui.preview"
-version = "0.1.0-SNAPSHOT"
+version = providers.gradleProperty("releaseVersion").orElse("0.1.0-SNAPSHOT").get()
 
 repositories {
     mavenCentral()
