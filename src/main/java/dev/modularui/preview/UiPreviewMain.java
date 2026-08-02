@@ -1,72 +1,90 @@
 package dev.modularui.preview;
 
 import dev.modularui.preview.project.PreviewProject;
+import java.io.PrintStream;
 import java.nio.file.Path;
 
 public final class UiPreviewMain {
 
-    private static final int MIN_ARGUMENTS = 1;
-    private static final int MAX_ARGUMENTS = 4;
-
     private UiPreviewMain() {}
 
-    public static void main(String[] args) throws Exception {
-        if (args.length < MIN_ARGUMENTS || args.length > MAX_ARGUMENTS) {
-            throw new IllegalArgumentException(
-                "Usage: <project-directory> [preview-class] [output-directory] [configuration]"
-                    + " | <project-directory> --actions <actions-file> | <project-directory> --interactive");
-        }
-        Path projectRoot = Path.of(args[0])
-            .toAbsolutePath();
-        if (args.length >= 2 && args[1].equals("--interactive")) {
-            runInteractive(args, projectRoot);
-            return;
-        }
-        if (args.length >= 2 && args[1].equals("--actions")) {
-            runActions(args, projectRoot);
-            return;
-        }
-        String className = args.length >= 2 ? args[1] : defaultClassName(projectRoot);
-        Path outputDirectory = defaultOutputDirectory(args, className);
-        Path configuration = configuration(args, projectRoot);
-        PreviewResult result = new UiPreviewRunner()
-            .preview(projectRoot, className, outputDirectory, PreviewScreen.load(configuration));
-        System.out.println("Preview PNG: " + outputDirectory.resolve("preview.png"));
-        System.out.println("Layout data: " + outputDirectory.resolve("bounds.json"));
-        System.out.println(
-            "Warnings: " + result.warnings()
-                .size());
+    public static void main(String[] args) {
+        int exitCode = run(args, System.out, System.err);
+        if (exitCode != 0) System.exit(exitCode);
     }
 
-    private static void runActions(String[] args, Path projectRoot) throws Exception {
-        if (args.length != 3) {
-            throw new IllegalArgumentException("Usage: <project-directory> --actions <actions-file>");
+    static int run(String[] args, PrintStream output, PrintStream error) {
+        try {
+            execute(PreviewCommand.parse(args), output);
+            return 0;
+        } catch (IllegalArgumentException exception) {
+            error.println(exception.getMessage());
+            error.println("Run 'preview help' to see the supported commands.");
+            return 2;
+        } catch (Exception exception) {
+            if (exception instanceof InterruptedException) Thread.currentThread().interrupt();
+            error.println("Preview failed: " + failureMessage(exception));
+            return 1;
         }
-        String className = defaultClassName(projectRoot);
-        Path outputDirectory = Path.of("output/" + simpleName(className))
-            .toAbsolutePath();
-        Path configuration = projectRoot.resolve("preview.properties")
-            .toAbsolutePath();
-        Path actions = Path.of(args[2])
-            .toAbsolutePath();
-        new PreviewActionRunner().run(
+    }
+
+    private static void execute(PreviewCommand command, PrintStream output) throws Exception {
+        if (command.mode() == PreviewCommand.Mode.HELP) {
+            output.print(PreviewCommand.usage());
+            return;
+        }
+        if (command.mode() == PreviewCommand.Mode.INIT) {
+            initialize(command.projectRoot(), output);
+            return;
+        }
+
+        Path projectRoot = command.projectRoot();
+        String className = command.className() == null ? defaultClassName(projectRoot) : command.className();
+        Path configuration = command.configuration() == null
+            ? projectRoot.resolve("preview.properties")
+                .toAbsolutePath()
+            : command.configuration();
+        Path outputDirectory = command.outputDirectory() == null
+            ? Path.of("output", simpleName(className))
+                .toAbsolutePath()
+            : command.outputDirectory();
+        PreviewScreen screen = PreviewScreen.load(configuration);
+
+        switch (command.mode()) {
+            case RENDER -> render(command, projectRoot, className, outputDirectory, screen, output);
+            case OPEN, WATCH -> new PreviewWindow().open(projectRoot, className, screen);
+            default -> throw new IllegalArgumentException("Unsupported preview command: " + command.mode());
+        }
+    }
+
+    private static void initialize(Path projectRoot, PrintStream output) {
+        PreviewProjectInitializer.initialize(projectRoot);
+        output.println("Preview project created: " + projectRoot);
+        output.println("Render it: preview.bat render \"" + projectRoot + "\"");
+        output.println("Watch it: preview.bat watch \"" + projectRoot + "\"");
+    }
+
+    private static void render(PreviewCommand command, Path projectRoot, String className, Path outputDirectory,
+        PreviewScreen screen, PrintStream output) throws Exception {
+        if (command.actions() != null) {
+            new PreviewActionRunner().run(
+                projectRoot,
+                className,
+                command.actions(),
+                outputDirectory,
+                screen);
+            output.println("Action results: " + outputDirectory.resolve("actions.json"));
+            output.println("Captures: " + outputDirectory.resolve("captures"));
+            return;
+        }
+        PreviewResult result = new UiPreviewRunner().preview(
             projectRoot,
             className,
-            actions,
             outputDirectory,
-            PreviewScreen.load(configuration));
-        System.out.println("Action results: " + outputDirectory.resolve("actions.json"));
-        System.out.println("Captures: " + outputDirectory.resolve("captures"));
-    }
-
-    private static void runInteractive(String[] args, Path projectRoot) throws Exception {
-        if (args.length != 2) {
-            throw new IllegalArgumentException("Usage: <project-directory> --interactive");
-        }
-        String className = defaultClassName(projectRoot);
-        Path configuration = projectRoot.resolve("preview.properties")
-            .toAbsolutePath();
-        new PreviewWindow().open(projectRoot, className, PreviewScreen.load(configuration));
+            screen);
+        output.println("Preview PNG: " + outputDirectory.resolve("preview.png"));
+        output.println("Layout data: " + outputDirectory.resolve("bounds.json"));
+        output.println("Warnings: " + result.warnings().size());
     }
 
     private static String defaultClassName(Path projectRoot) {
@@ -76,19 +94,13 @@ public final class UiPreviewMain {
                 "Missing preview.entrypoint in " + projectRoot.resolve("preview.properties")));
     }
 
-    private static Path defaultOutputDirectory(String[] args, String className) {
-        return Path.of(args.length >= 3 ? args[2] : "output/" + simpleName(className))
-            .toAbsolutePath();
-    }
-
-    private static Path configuration(String[] args, Path projectRoot) {
-        return Path.of(args.length == MAX_ARGUMENTS ? args[3] : projectRoot.resolve("preview.properties")
-            .toString())
-            .toAbsolutePath();
-    }
-
     private static String simpleName(String className) {
         int packageSeparator = className.lastIndexOf('.');
         return packageSeparator < 0 ? className : className.substring(packageSeparator + 1);
+    }
+
+    private static String failureMessage(Exception exception) {
+        String message = exception.getMessage();
+        return message == null || message.isBlank() ? exception.getClass().getSimpleName() : message;
     }
 }
