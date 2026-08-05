@@ -338,7 +338,7 @@ The runtime executes real `ModularPanel`, `ModularScreen`, `ModularContainer`, s
 
 The production acceptance surface covers rectangles, text, ModularUI2 textures, progress bars, empty item slots, player inventory, and full-screen GUI scaling.
 
-The headless Minecraft/OpenGL boundary is intentionally smaller than the game. Entity rendering, non-empty item-stack icons, custom shaders or framebuffers, and mod-specific direct OpenGL code are not complete. Keyboard input, text entry, drag-and-drop, animation ticks, hot reload, and server/network simulation are not part of the local interaction host. A reachable missing ABI is a previewer implementation gap; do not replace production GUI code with an invented lookalike to hide it.
+The headless Minecraft/OpenGL boundary is intentionally smaller than the game. Entity rendering, non-empty item-stack icons, custom shaders or framebuffers, and mod-specific direct OpenGL code are not complete. Keyboard input, text entry, drag-and-drop, animation ticks, hot reload, and server/network simulation are not part of the local interaction host.
 
 ## Troubleshooting
 
