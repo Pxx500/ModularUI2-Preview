@@ -160,4 +160,3 @@ class PreviewDrawContextTest {
         return image.getRGB(x, y) >>> 24;
     }
 }
-

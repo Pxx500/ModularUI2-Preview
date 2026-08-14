@@ -174,6 +174,49 @@ class PreviewEngineTest {
     }
 
     @Test
+    void sharesInstalledTranslationsWithProductionRuntimeClasses() throws Exception {
+        Path projectRoot = Files.createDirectories(temporaryDirectory.resolve("translated-panel-preview"));
+        Path libraries = Files.createDirectories(projectRoot.resolve("libs"));
+        writeClassJar(
+            libraries.resolve("production-boundaries.jar"),
+            net.minecraft.util.StatCollector.class,
+            com.cleanroommc.modularui.utils.GlStateManager.class,
+            org.lwjgl.opengl.GL11.class);
+        Path languageFile = projectRoot.resolve("src/preview/resources/assets/example/lang/en_US.lang");
+        Files.createDirectories(languageFile.getParent());
+        Files.writeString(languageFile, "example.preview.label=Translated label\n");
+        Path source = projectRoot.resolve("src/preview/java/example/TranslatedPanelPreview.java");
+        Files.createDirectories(source.getParent());
+        Files.writeString(
+            source,
+            """
+                package example;
+
+                import com.cleanroommc.modularui.screen.ModularPanel;
+                import dev.modularui.preview.PreviewEntrypoint;
+                import net.minecraft.util.StatCollector;
+
+                public final class TranslatedPanelPreview implements PreviewEntrypoint {
+                    @Override
+                    public Object createPanel(PreviewEntrypoint.Context context) {
+                        String label = StatCollector.translateToLocal("example.preview.label");
+                        if (!"Translated label".equals(label)) {
+                            throw new IllegalStateException("Production runtime did not receive preview translations: " + label);
+                        }
+                        return ModularPanel.defaultPanel("translated_panel", 176, 220);
+                    }
+                }
+                """);
+
+        try (PreviewSession ignored = PreviewEngine.open(
+            projectRoot,
+            "example.TranslatedPanelPreview",
+            new PreviewScreen(800, 600, 1))) {
+            // Opening the production panel proves that its StatCollector sees the installed language map.
+        }
+    }
+
+    @Test
     void routesLocalMouseClicksThroughTheRealModularUiScreen() throws Exception {
         Path projectRoot = Files.createDirectories(temporaryDirectory.resolve("interactive-panel-preview"));
         writeInteractivePanelEntrypoint(projectRoot);
@@ -452,15 +495,18 @@ class PreviewEngineTest {
         }
     }
 
-    private static void writeClassJar(Path file, Class<?> type) throws Exception {
-        String entryName = type.getName()
-            .replace('.', '/') + ".class";
-        try (JarOutputStream jar = new JarOutputStream(Files.newOutputStream(file));
-            InputStream bytes = type.getClassLoader()
-                .getResourceAsStream(entryName)) {
-            jar.putNextEntry(new JarEntry(entryName));
-            jar.write(bytes.readAllBytes());
-            jar.closeEntry();
+    private static void writeClassJar(Path file, Class<?>... types) throws Exception {
+        try (JarOutputStream jar = new JarOutputStream(Files.newOutputStream(file))) {
+            for (Class<?> type : types) {
+                String entryName = type.getName()
+                    .replace('.', '/') + ".class";
+                try (InputStream bytes = type.getClassLoader()
+                    .getResourceAsStream(entryName)) {
+                    jar.putNextEntry(new JarEntry(entryName));
+                    jar.write(bytes.readAllBytes());
+                    jar.closeEntry();
+                }
+            }
         }
     }
 
