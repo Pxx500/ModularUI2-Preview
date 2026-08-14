@@ -1,0 +1,3 @@
+# Generate runtime-classpath.txt from Galaxia's runtime classpath.
+# Include Galaxia's compiled classes and resources, but omit ModularUI and ModularUI2;
+# the previewer supplies the versions it was built and verified against.
