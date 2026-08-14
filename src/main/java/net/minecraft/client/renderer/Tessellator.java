@@ -52,6 +52,11 @@ public class Tessellator {
         nextVertexTextured = false;
     }
 
+    public void addVertexWithUV(double x, double y, double z, double u, double v) {
+        setTextureUV(u, v);
+        addVertex(x, y, z);
+    }
+
     public int draw() {
         double[] positions = new double[vertices.size() * 3];
         double[] textureCoordinates = new double[vertices.size() * 2];

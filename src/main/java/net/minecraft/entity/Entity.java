@@ -1,3 +1,7 @@
 package net.minecraft.entity;
 
-public class Entity {}
+public class Entity {
+
+    /** Current dimension id, matching the public field exposed by Minecraft 1.7.10. */
+    public int dimension;
+}
