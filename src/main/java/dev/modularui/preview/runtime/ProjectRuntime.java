@@ -169,13 +169,17 @@ public final class ProjectRuntime implements AutoCloseable {
     private PreviewResult render(Class<?> screenClass, Object screen, Object panel, Bounds panelBounds,
         PreviewScreen previewScreen, ScreenLayout layout, AssetResolver assets,
         AssetResolver.Translations translations) {
-        BufferedImage logicalImage = new BufferedImage(
-            layout.logicalWidth(),
-            layout.logicalHeight(),
+        BufferedImage framebuffer = new BufferedImage(
+            layout.screenWidth(),
+            layout.screenHeight(),
             BufferedImage.TYPE_INT_ARGB);
-        Graphics2D graphics = logicalImage.createGraphics();
+        Graphics2D graphics = framebuffer.createGraphics();
+        graphics.setRenderingHint(
+            java.awt.RenderingHints.KEY_INTERPOLATION,
+            java.awt.RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+        graphics.scale(layout.guiScale(), layout.guiScale());
         graphics.setColor(new Color(previewScreen.backgroundColor(), true));
-        graphics.fillRect(0, 0, logicalImage.getWidth(), logicalImage.getHeight());
+        graphics.fillRect(0, 0, layout.logicalWidth(), layout.logicalHeight());
         List<String> renderedAssets = new ArrayList<>(translations.sources());
         try {
             StatCollector.installTranslations(translations.values());
@@ -190,7 +194,7 @@ public final class ProjectRuntime implements AutoCloseable {
             graphics.dispose();
         }
         List<WidgetBounds> widgets = captureWidgets(panel, panelBounds, layout);
-        return new PreviewResult(layout.toFramebuffer(logicalImage), layout, widgets, List.of(), renderedAssets);
+        return new PreviewResult(framebuffer, layout, widgets, List.of(), renderedAssets);
     }
 
     private boolean dispatchMouse(Class<?> screenClass, Object screen, int button, boolean pressed) {

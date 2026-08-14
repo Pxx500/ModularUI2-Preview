@@ -11,6 +11,7 @@ public final class GL11 {
     public static final int GL_LINES = 1;
     public static final int GL_LINE_LOOP = 2;
     public static final int GL_LINE_STRIP = 3;
+    public static final int GL_LINE_SMOOTH = 0x0B20;
     public static final int GL_TRIANGLES = 4;
     public static final int GL_TRIANGLE_STRIP = 5;
     public static final int GL_TRIANGLE_FAN = 6;
@@ -66,6 +67,26 @@ public final class GL11 {
         PreviewDrawContext.loadMatrix(matrix);
     }
 
+    public static void glLineWidth(float width) {
+        PreviewDrawContext.lineWidth(width);
+    }
+
+    public static void glBegin(int mode) {
+        PreviewDrawContext.begin(mode);
+    }
+
+    public static void glEnd() {
+        PreviewDrawContext.end();
+    }
+
+    public static void glVertex2f(float x, float y) {
+        PreviewDrawContext.vertex(x, y);
+    }
+
+    public static void glVertex2d(double x, double y) {
+        PreviewDrawContext.vertex(x, y);
+    }
+
     public static void glMultMatrix(FloatBuffer matrix) {
         PreviewDrawContext.multiplyMatrix(matrix);
     }
@@ -106,9 +127,13 @@ public final class GL11 {
         while (target.hasRemaining()) target.put(0);
     }
 
-    public static void glDisable(int capability) {}
+    public static void glDisable(int capability) {
+        PreviewDrawContext.disable(capability);
+    }
 
-    public static void glEnable(int capability) {}
+    public static void glEnable(int capability) {
+        PreviewDrawContext.enable(capability);
+    }
 
     public static void glBlendFunc(int source, int destination) {}
 
@@ -120,7 +145,9 @@ public final class GL11 {
 
     public static void glClearStencil(int value) {}
 
-    public static void glColorMask(boolean red, boolean green, boolean blue, boolean alpha) {}
+    public static void glColorMask(boolean red, boolean green, boolean blue, boolean alpha) {
+        PreviewDrawContext.colorMask(red, green, blue, alpha);
+    }
 
     public static void glDepthMask(boolean enabled) {}
 
@@ -146,7 +173,9 @@ public final class GL11 {
 
     public static void glStencilMask(int mask) {}
 
-    public static void glStencilOp(int fail, int depthFail, int depthPass) {}
+    public static void glStencilOp(int fail, int depthFail, int depthPass) {
+        PreviewDrawContext.stencilOperation(depthPass);
+    }
 
     public static void glViewport(int x, int y, int width, int height) {}
 }
