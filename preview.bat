@@ -23,7 +23,7 @@ if defined JAVA_HOME (
     set "PREVIEW_JAVAC=%JAVA_HOME%\bin\javac.exe"
 ) else (
     where java.exe >nul 2>nul || (
-        echo ModularUI2 Preview requires JDK 21. Set JAVA_HOME or add java and javac to PATH. 1>&2
+        echo ModularUI2 Preview requires JDK 25. Set JAVA_HOME or add java and javac to PATH. 1>&2
         exit /b 2
     )
     where javac.exe >nul 2>nul || (
@@ -51,8 +51,8 @@ for /f "tokens=1,2,3" %%A in ('"%PREVIEW_JAVA%" -version 2^>^&1') do if not defi
 for /f "tokens=1 delims=." %%V in ("%PREVIEW_JAVA_VERSION%") do set "PREVIEW_JAVA_MAJOR=%%V"
 set "PREVIEW_JAVA_MAJOR_NUMBER=0"
 set /a PREVIEW_JAVA_MAJOR_NUMBER=%PREVIEW_JAVA_MAJOR% >nul 2>nul
-if %PREVIEW_JAVA_MAJOR_NUMBER% LSS 21 (
-    echo ModularUI2 Preview requires JDK 21 or newer; found %PREVIEW_JAVA_VERSION%. 1>&2
+if %PREVIEW_JAVA_MAJOR_NUMBER% LSS 25 (
+    echo ModularUI2 Preview requires JDK 25 or newer; found %PREVIEW_JAVA_VERSION%. 1>&2
     exit /b 2
 )
 exit /b 0
