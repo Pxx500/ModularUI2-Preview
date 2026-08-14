@@ -16,8 +16,11 @@ import java.io.IOException;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
+import java.lang.reflect.Array;
+import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.Path;
@@ -47,6 +50,7 @@ public final class ProjectRuntime implements AutoCloseable {
     public static PreviewSession openSession(PreviewProject project, String entrypointName, PreviewScreen previewScreen) {
         ProjectRuntime runtime = open(project.runtimeArtifacts());
         try {
+            runtime.initialiseForgeClientSide();
             return runtime.createSession(project, entrypointName, previewScreen);
         } catch (RuntimeException | LinkageError exception) {
             try {
@@ -56,6 +60,44 @@ public final class ProjectRuntime implements AutoCloseable {
             }
             throw exception;
         }
+    }
+
+    @SuppressWarnings({ "unchecked", "rawtypes" })
+    private void initialiseForgeClientSide() {
+        try {
+            Class<?> commonHandlerClass = classLoader.loadClass("cpw.mods.fml.common.FMLCommonHandler");
+            Class<?> sidedHandlerClass = classLoader.loadClass("cpw.mods.fml.common.IFMLSidedHandler");
+            Class<? extends Enum> sideClass = classLoader.loadClass("cpw.mods.fml.relauncher.Side")
+                .asSubclass(Enum.class);
+            Object clientSide = Enum.valueOf(sideClass, "CLIENT");
+            Object sidedHandler = Proxy.newProxyInstance(
+                classLoader,
+                new Class<?>[] { sidedHandlerClass },
+                (proxy, method, arguments) -> previewSidedHandlerValue(proxy, method, arguments, clientSide));
+            Object commonHandler = invoke(commonHandlerClass, null, "instance", new Class<?>[0]);
+            Field sidedDelegate = commonHandlerClass.getDeclaredField("sidedDelegate");
+            sidedDelegate.setAccessible(true);
+            sidedDelegate.set(commonHandler, sidedHandler);
+        } catch (ClassNotFoundException ignored) {
+            // Portable previews do not need the Forge client bootstrap.
+        } catch (ReflectiveOperationException exception) {
+            throw reflectionFailure("Could not initialise the Forge client side", exception);
+        }
+    }
+
+    private static Object previewSidedHandlerValue(Object proxy, Method method, Object[] arguments, Object clientSide) {
+        return switch (method.getName()) {
+            case "getSide" -> clientSide;
+            case "getCurrentLanguage" -> "en_US";
+            case "toString" -> "Preview client sided handler";
+            case "hashCode" -> System.identityHashCode(proxy);
+            case "equals" -> arguments != null && arguments.length == 1 && proxy == arguments[0];
+            default -> primitiveDefault(method.getReturnType());
+        };
+    }
+
+    private static Object primitiveDefault(Class<?> type) {
+        return type.isPrimitive() && type != void.class ? Array.get(Array.newInstance(type, 1), 0) : null;
     }
 
     private PreviewSession createSession(PreviewProject project, String entrypointName, PreviewScreen previewScreen) {
@@ -169,13 +211,17 @@ public final class ProjectRuntime implements AutoCloseable {
     private PreviewResult render(Class<?> screenClass, Object screen, Object panel, Bounds panelBounds,
         PreviewScreen previewScreen, ScreenLayout layout, AssetResolver assets,
         AssetResolver.Translations translations) {
-        BufferedImage logicalImage = new BufferedImage(
-            layout.logicalWidth(),
-            layout.logicalHeight(),
+        BufferedImage framebuffer = new BufferedImage(
+            layout.screenWidth(),
+            layout.screenHeight(),
             BufferedImage.TYPE_INT_ARGB);
-        Graphics2D graphics = logicalImage.createGraphics();
+        Graphics2D graphics = framebuffer.createGraphics();
+        graphics.setRenderingHint(
+            java.awt.RenderingHints.KEY_INTERPOLATION,
+            java.awt.RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+        graphics.scale(layout.guiScale(), layout.guiScale());
         graphics.setColor(new Color(previewScreen.backgroundColor(), true));
-        graphics.fillRect(0, 0, logicalImage.getWidth(), logicalImage.getHeight());
+        graphics.fillRect(0, 0, layout.logicalWidth(), layout.logicalHeight());
         List<String> renderedAssets = new ArrayList<>(translations.sources());
         try {
             StatCollector.installTranslations(translations.values());
@@ -190,7 +236,7 @@ public final class ProjectRuntime implements AutoCloseable {
             graphics.dispose();
         }
         List<WidgetBounds> widgets = captureWidgets(panel, panelBounds, layout);
-        return new PreviewResult(layout.toFramebuffer(logicalImage), layout, widgets, List.of(), renderedAssets);
+        return new PreviewResult(framebuffer, layout, widgets, List.of(), renderedAssets);
     }
 
     private boolean dispatchMouse(Class<?> screenClass, Object screen, int button, boolean pressed) {
@@ -443,10 +489,20 @@ public final class ProjectRuntime implements AutoCloseable {
             "jdk.",
             "sun.",
             "dev.modularui.preview.",
-            "net.minecraft.",
-            "net.minecraftforge.",
-            "cpw.mods.",
+            "net.minecraft.client.",
+            "net.minecraft.client.renderer.GlStateManager",
+            "net.minecraft.entity.",
+            "net.minecraft.inventory.",
+            "net.minecraft.item.",
+            "net.minecraft.util.ResourceLocation",
+            "net.minecraft.util.StatCollector",
+            "net.minecraft.util.StringTranslate",
+            "cpw.mods.fml.common.ICrashCallable",
+            "cpw.mods.fml.common.Loader",
+            "cpw.mods.fml.common.ModContainer",
+            "cpw.mods.fml.relauncher.",
             "org.lwjgl.",
+            "org.lwjgl.opengl.GL11",
             "org.apache.logging.log4j.",
             "com.cleanroommc.modularui.core.mixins.early.minecraft.");
 

@@ -1,16 +1,23 @@
 package dev.modularui.preview;
 
 import dev.modularui.preview.assets.AssetResolver;
-import java.awt.Graphics2D;
+import java.awt.BasicStroke;
 import java.awt.Color;
+import java.awt.Graphics2D;
 import java.awt.Polygon;
+import java.awt.RenderingHints;
+import java.awt.Shape;
 import java.awt.image.BufferedImage;
 import java.awt.geom.AffineTransform;
+import java.awt.geom.Area;
+import java.awt.geom.Line2D;
+import java.awt.geom.Path2D;
 import java.awt.geom.Point2D;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.FloatBuffer;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -42,9 +49,16 @@ public final class PreviewDrawContext {
     }
 
     public static void drawRect(int left, int top, int right, int bottom, int color) {
+        Polygon polygon = polygon(new double[] {
+            left, top, 0,
+            right, top, 0,
+            right, bottom, 0,
+            left, bottom, 0
+        }, new int[] { 0, 1, 2, 3 });
+        if (captureStencil(polygon)) return;
         Graphics2D graphics = requireGraphics();
         graphics.setColor(new Color(color, true));
-        graphics.fillRect(left, top, Math.max(0, right - left), Math.max(0, bottom - top));
+        graphics.fillPolygon(polygon);
     }
 
     public static int stringWidth(String text) {
@@ -105,6 +119,67 @@ public final class PreviewDrawContext {
         return requireState().color.getRGB();
     }
 
+    public static void enable(int capability) {
+        State state = requireState();
+        if (capability == org.lwjgl.opengl.GL11.GL_STENCIL_TEST) state.stencilEnabled = true;
+        if (capability == org.lwjgl.opengl.GL11.GL_LINE_SMOOTH) state.smoothLines = true;
+    }
+
+    public static void disable(int capability) {
+        State state = requireState();
+        if (capability == org.lwjgl.opengl.GL11.GL_LINE_SMOOTH) {
+            state.smoothLines = false;
+            return;
+        }
+        if (capability != org.lwjgl.opengl.GL11.GL_STENCIL_TEST) return;
+        state.stencilEnabled = false;
+        state.stencilClips.clear();
+        state.graphics.setClip(state.originalClip);
+    }
+
+    public static void colorMask(boolean red, boolean green, boolean blue, boolean alpha) {
+        State state = requireState();
+        boolean drawingColors = red || green || blue || alpha;
+        if (!drawingColors && state.stencilEnabled) {
+            state.capturedStencil = new Area();
+            return;
+        }
+        if (drawingColors && state.capturedStencil != null) finishStencilCapture(state);
+    }
+
+    public static void stencilOperation(int depthPass) {
+        requireState().stencilDepthPass = depthPass;
+    }
+
+    public static void lineWidth(float width) {
+        requireState().lineWidth = Math.max(1F, width);
+    }
+
+    public static void begin(int mode) {
+        State state = requireState();
+        state.immediateMode = mode;
+        state.immediateVertices.clear();
+    }
+
+    public static void vertex(double x, double y) {
+        State state = requireState();
+        state.immediateVertices.add(x);
+        state.immediateVertices.add(y);
+        state.immediateVertices.add(0.0);
+    }
+
+    public static void end() {
+        State state = requireState();
+        if (state.immediateMode < 0) return;
+        double[] positions = state.immediateVertices.stream().mapToDouble(Double::doubleValue).toArray();
+        int count = positions.length / 3;
+        int[] colors = new int[count];
+        java.util.Arrays.fill(colors, state.color.getRGB());
+        drawVertices(state.immediateMode, positions, null, colors, count);
+        state.immediateMode = -1;
+        state.immediateVertices.clear();
+    }
+
     public static void bindTexture(ResourceLocation location) {
         State state = requireState();
         if (state.assets == null) throw new IllegalStateException("No asset resolver is active for " + location);
@@ -146,9 +221,16 @@ public final class PreviewDrawContext {
             return;
         }
         if (mode == org.lwjgl.opengl.GL11.GL_TRIANGLE_STRIP) {
-            for (int index = 0; index + 2 < count; index++) {
-                drawPolygon(positions, colors, new int[] { index, index + 1, index + 2 });
-            }
+            drawTriangleStrip(positions, colors, count);
+            return;
+        }
+        if (mode == org.lwjgl.opengl.GL11.GL_LINES) {
+            for (int index = 0; index + 1 < count; index += 2) drawLine(positions, index, index + 1);
+            return;
+        }
+        if (mode == org.lwjgl.opengl.GL11.GL_LINE_STRIP || mode == org.lwjgl.opengl.GL11.GL_LINE_LOOP) {
+            for (int index = 0; index + 1 < count; index++) drawLine(positions, index, index + 1);
+            if (mode == org.lwjgl.opengl.GL11.GL_LINE_LOOP && count > 2) drawLine(positions, count - 1, 0);
         }
     }
 
@@ -186,14 +268,87 @@ public final class PreviewDrawContext {
     }
 
     private static void drawPolygon(double[] positions, int[] colors, int[] indices) {
+        Polygon polygon = polygon(positions, indices);
+        fillShape(polygon, colors, indices[0]);
+    }
+
+    private static void drawTriangleStrip(double[] positions, int[] colors, int count) {
+        Area strip = new Area();
+        for (int index = 0; index + 2 < count; index++) {
+            int first = index % 2 == 0 ? index : index + 1;
+            int second = index % 2 == 0 ? index + 1 : index;
+            strip.add(new Area(triangle(positions, first, second, index + 2)));
+        }
+        fillShape(strip, colors, 0);
+    }
+
+    private static Shape triangle(double[] positions, int first, int second, int third) {
+        Path2D.Double triangle = new Path2D.Double();
+        Point2D firstPoint = transform(positions[first * 3], positions[first * 3 + 1]);
+        Point2D secondPoint = transform(positions[second * 3], positions[second * 3 + 1]);
+        Point2D thirdPoint = transform(positions[third * 3], positions[third * 3 + 1]);
+        triangle.moveTo(firstPoint.getX(), firstPoint.getY());
+        triangle.lineTo(secondPoint.getX(), secondPoint.getY());
+        triangle.lineTo(thirdPoint.getX(), thirdPoint.getY());
+        triangle.closePath();
+        return triangle;
+    }
+
+    private static void fillShape(Shape shape, int[] colors, int colorIndex) {
+        if (captureStencil(shape)) return;
+        State state = requireState();
+        Color drawColor = colors.length > colorIndex ? new Color(colors[colorIndex], true) : state.color;
+        state.graphics.setColor(drawColor);
+        state.graphics.fill(shape);
+    }
+
+    private static Polygon polygon(double[] positions, int[] indices) {
         Polygon polygon = new Polygon();
         for (int index : indices) {
             Point2D point = transform(positions[index * 3], positions[index * 3 + 1]);
             polygon.addPoint((int) Math.round(point.getX()), (int) Math.round(point.getY()));
         }
+        return polygon;
+    }
+
+    private static boolean captureStencil(Shape shape) {
         State state = requireState();
-        state.graphics.setColor(colors.length > indices[0] ? new Color(colors[indices[0]], true) : state.color);
-        state.graphics.fillPolygon(polygon);
+        if (state.capturedStencil == null) return false;
+        state.capturedStencil.add(new Area(shape));
+        return true;
+    }
+
+    private static void finishStencilCapture(State state) {
+        if (state.stencilDepthPass == org.lwjgl.opengl.GL11.GL_DECR) {
+            if (!state.stencilClips.isEmpty()) state.stencilClips.pop();
+        } else if (state.stencilDepthPass == org.lwjgl.opengl.GL11.GL_INCR) {
+            Area clip = new Area(state.capturedStencil);
+            if (!state.stencilClips.isEmpty()) clip.intersect(new Area(state.stencilClips.peek()));
+            state.stencilClips.push(clip);
+        }
+        state.capturedStencil = null;
+        if (state.stencilClips.isEmpty()) state.graphics.setClip(state.originalClip);
+        else state.graphics.setClip(state.stencilClips.peek());
+    }
+
+    private static void drawLine(double[] positions, int first, int second) {
+        Point2D from = transform(positions[first * 3], positions[first * 3 + 1]);
+        Point2D to = transform(positions[second * 3], positions[second * 3 + 1]);
+        State state = requireState();
+        state.graphics.setColor(state.color);
+        Object previousAntialiasing = state.graphics.getRenderingHint(RenderingHints.KEY_ANTIALIASING);
+        java.awt.Stroke previousStroke = state.graphics.getStroke();
+        double framebufferScale = Math.sqrt(Math.abs(state.graphics.getTransform().getDeterminant()));
+        float logicalWidth = (float) (state.lineWidth / Math.max(1D, framebufferScale));
+        state.graphics.setStroke(new BasicStroke(logicalWidth, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER));
+        state.graphics.setRenderingHint(
+            RenderingHints.KEY_ANTIALIASING,
+            state.smoothLines ? RenderingHints.VALUE_ANTIALIAS_ON : RenderingHints.VALUE_ANTIALIAS_OFF);
+        state.graphics.draw(new Line2D.Double(from, to));
+        state.graphics.setStroke(previousStroke);
+        if (previousAntialiasing != null) {
+            state.graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, previousAntialiasing);
+        }
     }
 
     private static void drawTexturedQuad(double[] positions, double[] textureCoordinates, int offset) {
@@ -258,15 +413,25 @@ public final class PreviewDrawContext {
 
         private final Graphics2D graphics;
         private final AssetResolver assets;
+        private final Shape originalClip;
         private final Deque<AffineTransform> matrices = new ArrayDeque<>();
+        private final Deque<Area> stencilClips = new ArrayDeque<>();
         private final Set<String> assetSources = new LinkedHashSet<>();
         private AffineTransform matrix = new AffineTransform();
         private Color color = Color.WHITE;
         private BufferedImage texture;
+        private int immediateMode = -1;
+        private final List<Double> immediateVertices = new ArrayList<>();
+        private boolean stencilEnabled;
+        private boolean smoothLines;
+        private float lineWidth = 1F;
+        private int stencilDepthPass = org.lwjgl.opengl.GL11.GL_KEEP;
+        private Area capturedStencil;
 
         private State(Graphics2D graphics, AssetResolver assets) {
             this.graphics = graphics;
             this.assets = assets;
+            this.originalClip = graphics.getClip();
         }
     }
 }

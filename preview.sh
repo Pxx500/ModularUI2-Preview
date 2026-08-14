@@ -12,7 +12,7 @@ else
 fi
 
 if [ -z "$preview_java" ] || [ ! -x "$preview_java" ]; then
-    echo "ModularUI2 Preview requires JDK 21. Set JAVA_HOME or add java and javac to PATH." >&2
+    echo "ModularUI2 Preview requires JDK 25. Set JAVA_HOME or add java and javac to PATH." >&2
     exit 2
 fi
 if [ -z "$preview_javac" ] || [ ! -x "$preview_javac" ]; then
@@ -35,8 +35,8 @@ case "$java_major" in
         exit 2
         ;;
 esac
-if [ "$java_major" -lt 21 ]; then
-    echo "ModularUI2 Preview requires JDK 21 or newer; found $java_version." >&2
+if [ "$java_major" -lt 25 ]; then
+    echo "ModularUI2 Preview requires JDK 25 or newer; found $java_version." >&2
     exit 2
 fi
 
