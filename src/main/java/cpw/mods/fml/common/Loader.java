@@ -34,6 +34,21 @@ public final class Loader {
         return bootstrappingVanilla ? MINECRAFT_CONTAINER : ACTIVE_MOD_CONTAINER;
     }
 
+    public ICrashCallable getCallableCrashInformation() {
+        return new ICrashCallable() {
+
+            @Override
+            public String call() {
+                return "";
+            }
+
+            @Override
+            public String getLabel() {
+                return "FML";
+            }
+        };
+    }
+
     public static void beginVanillaBootstrap() {
         bootstrappingVanilla = true;
     }
