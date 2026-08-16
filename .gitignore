@@ -3,6 +3,7 @@ build/
 output/
 logs/
 config/
+saves/
 runtime-classpath.txt
 *.class
 .idea/

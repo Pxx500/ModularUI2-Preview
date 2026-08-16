@@ -149,6 +149,7 @@ class VerificationCliTest {
                             }),
                             scenario("healthy/default", "healthy interactive panel", () -> {})
                                 .tags("default", "interaction")
+                                .timeout(PreviewScenario.TimeoutCategory.EXTENDED)
                                 .actions("actions/healthy.txt"));
                     }
 

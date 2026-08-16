@@ -48,4 +48,4 @@ if [ ! -f "$preview_launcher" ]; then
     fi
 fi
 
-exec "$preview_launcher" "$@"
+exec sh "$preview_launcher" "$@"
