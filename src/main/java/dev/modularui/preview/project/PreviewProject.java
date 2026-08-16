@@ -26,17 +26,20 @@ public final class PreviewProject {
 
     private final Path root;
     private final Path compiledOutput;
+    private final Path previewSources;
     private final List<Path> assetSources;
     private final List<Path> bundledRuntime;
-    private final List<Path> productionRuntime;
+    private final ProductionRuntime productionRuntime;
     private final List<Path> libraries;
     private final List<Path> extensions;
     private final Map<String, String> properties;
 
-    private PreviewProject(Path root, Path compiledOutput, List<Path> assetSources, List<Path> bundledRuntime,
-        List<Path> productionRuntime, List<Path> libraries, List<Path> extensions, Map<String, String> properties) {
+    private PreviewProject(Path root, Path compiledOutput, Path previewSources, List<Path> assetSources,
+        List<Path> bundledRuntime, ProductionRuntime productionRuntime, List<Path> libraries, List<Path> extensions,
+        Map<String, String> properties) {
         this.root = root;
         this.compiledOutput = compiledOutput;
+        this.previewSources = previewSources;
         this.assetSources = assetSources;
         this.bundledRuntime = bundledRuntime;
         this.productionRuntime = productionRuntime;
@@ -89,6 +92,7 @@ public final class PreviewProject {
     public static PreviewProject open(Path root, Path compiledOutput) {
         Path normalizedRoot = root.toAbsolutePath()
             .normalize();
+        Map<String, String> properties = loadProperties(normalizedRoot.resolve("preview.properties"));
         List<Path> assetSources = Stream.of(
             normalizedRoot.resolve("src/preview/resources"),
             normalizedRoot.resolve("assets"))
@@ -98,12 +102,13 @@ public final class PreviewProject {
             normalizedRoot,
             compiledOutput.toAbsolutePath()
                 .normalize(),
+            configuredPath(normalizedRoot, properties.getOrDefault("preview.sources", "src/preview/java")),
             assetSources,
             locateBundledRuntime(),
-            loadRuntimeClasspath(normalizedRoot, normalizedRoot.resolve("runtime-classpath.txt")),
+            ProductionRuntime.open(normalizedRoot, properties),
             discoverJars(normalizedRoot.resolve("libs")),
             discoverJars(normalizedRoot.resolve("extensions")),
-            loadProperties(normalizedRoot.resolve("preview.properties")));
+            properties);
     }
 
     public Path root() {
@@ -111,7 +116,7 @@ public final class PreviewProject {
     }
 
     public Path previewSources() {
-        return root.resolve("src/preview/java");
+        return previewSources;
     }
 
     public void compileSources() {
@@ -129,7 +134,11 @@ public final class PreviewProject {
 
         JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
         if (compiler == null) {
-            throw new IllegalStateException("Preview sources require a JDK, but no Java compiler is available");
+            throw new IllegalStateException("[jdk_error] Preview sources require a JDK, but no Java compiler is available");
+        }
+        if (Runtime.version().feature() < 25) {
+            throw new IllegalStateException("[jdk_error] ModularUI2 Preview requires JDK 25 or newer; found "
+                + Runtime.version().feature());
         }
         Path output = compiledOutput;
         try {
@@ -140,7 +149,7 @@ public final class PreviewProject {
 
         String projectClasspath = Stream.of(
             bundledRuntime.stream(),
-            productionRuntime.stream(),
+            productionRuntime().stream(),
             libraries.stream(),
             extensions.stream())
             .flatMap(stream -> stream)
@@ -175,7 +184,7 @@ public final class PreviewProject {
     }
 
     public List<Path> productionRuntime() {
-        return productionRuntime;
+        return productionRuntime.resolve();
     }
 
     public List<Path> extensions() {
@@ -192,7 +201,7 @@ public final class PreviewProject {
                 root.resolve("extensions"),
                 root.resolve("runtime-classpath.txt"),
                 configuration),
-            productionRuntime.stream())
+            productionRuntime.watchedInputs().stream())
             .flatMap(stream -> stream)
             .map(path -> path.toAbsolutePath()
                 .normalize())
@@ -205,7 +214,7 @@ public final class PreviewProject {
             Stream.of(compiledOutput)
                 .filter(Files::isDirectory),
             bundledRuntime.stream(),
-            productionRuntime.stream(),
+            productionRuntime().stream(),
             libraries.stream(),
             extensions.stream())
             .flatMap(stream -> stream)
@@ -261,20 +270,8 @@ public final class PreviewProject {
             .collect(java.util.stream.Collectors.toUnmodifiableMap(name -> name, loaded::getProperty));
     }
 
-    private static List<Path> loadRuntimeClasspath(Path root, Path file) {
-        if (!Files.isRegularFile(file)) return List.of();
-        try {
-            return Files.readAllLines(file)
-                .stream()
-                .map(String::trim)
-                .filter(line -> !line.isEmpty() && !line.startsWith("#"))
-                .map(Path::of)
-                .map(path -> path.isAbsolute() ? path : root.resolve(path))
-                .map(path -> path.toAbsolutePath()
-                    .normalize())
-                .toList();
-        } catch (IOException exception) {
-            throw new IllegalArgumentException("Could not read production runtime classpath: " + file, exception);
-        }
+    private static Path configuredPath(Path root, String configured) {
+        Path path = Path.of(configured.trim());
+        return (path.isAbsolute() ? path : root.resolve(path)).toAbsolutePath().normalize();
     }
 }

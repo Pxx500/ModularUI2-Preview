@@ -22,17 +22,34 @@ public final class PreviewActionRunner {
 
     public List<ActionResult> run(Path projectRoot, String className, Path actionsFile, Path outputDirectory,
         PreviewScreen screen) throws IOException {
+        return run(projectRoot, className, null, actionsFile, outputDirectory, screen);
+    }
+
+    public List<ActionResult> run(Path projectRoot, String className, String scenarioId, Path actionsFile,
+        Path outputDirectory, PreviewScreen screen) throws IOException {
         List<ScriptAction> actions = parse(actionsFile);
+        Files.createDirectories(outputDirectory);
+        try (PreviewSession session = PreviewEngine.open(projectRoot, className, scenarioId, screen)) {
+            return run(session, className, actionsFile, outputDirectory, actions);
+        }
+    }
+
+    public List<ActionResult> run(PreviewSession session, String className, Path actionsFile, Path outputDirectory)
+        throws IOException {
+        List<ScriptAction> actions = parse(actionsFile);
+        return run(session, className, actionsFile, outputDirectory, actions);
+    }
+
+    private List<ActionResult> run(PreviewSession session, String className, Path actionsFile, Path outputDirectory,
+        List<ScriptAction> actions) throws IOException {
         List<ActionResult> results = new ArrayList<>();
         Set<String> captureNames = new HashSet<>();
         Cursor cursor = new Cursor();
         UiPreviewRunner artifacts = new UiPreviewRunner();
         Files.createDirectories(outputDirectory);
-        try (PreviewSession session = PreviewEngine.open(projectRoot, className, screen)) {
-            for (ScriptAction action : actions) {
-                execute(action, actionsFile, outputDirectory, className, session, artifacts, results, captureNames,
-                    cursor);
-            }
+        for (ScriptAction action : actions) {
+            execute(action, actionsFile, outputDirectory, className, session, artifacts, results, captureNames,
+                cursor);
         }
         writeResults(outputDirectory.resolve("actions.json"), results);
         return List.copyOf(results);

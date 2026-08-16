@@ -1,3 +1,6 @@
+import java.security.MessageDigest
+import java.util.HexFormat
+
 plugins {
     java
     application
@@ -44,13 +47,42 @@ dependencies {
 }
 
 val distributionZip = tasks.named<Zip>("distZip")
+val distributionTar = tasks.named<Tar>("distTar")
+
+val distributionChecksums = tasks.register("distChecksums") {
+    group = "distribution"
+    description = "Writes SHA-256 files for the portable release archives."
+    dependsOn(distributionZip, distributionTar)
+
+    doLast {
+        listOf(distributionZip.get().archiveFile.get().asFile, distributionTar.get().archiveFile.get().asFile)
+            .forEach { archive ->
+                val digest = MessageDigest.getInstance("SHA-256")
+                archive.inputStream().use { input ->
+                    val buffer = ByteArray(8192)
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        digest.update(buffer, 0, count)
+                    }
+                }
+                val checksum = HexFormat.of().formatHex(digest.digest())
+                file(archive.parentFile.resolve(archive.name + ".sha256"))
+                    .writeText("$checksum  ${archive.name}\n")
+            }
+    }
+}
 
 tasks.test {
     useJUnitPlatform()
-    dependsOn(distributionZip)
+    dependsOn(distributionChecksums)
 
     doFirst {
         systemProperty("preview.distribution.zip", distributionZip.get().archiveFile.get().asFile)
+        systemProperty(
+            "preview.distribution.zip.checksum",
+            distributionZip.get().archiveFile.get().asFile.parentFile.resolve(
+                distributionZip.get().archiveFile.get().asFile.name + ".sha256"))
         systemProperty(
             "modularui.test.jar",
             bundledRuntime.single { it.name.startsWith("ModularUI2-") })
@@ -80,12 +112,13 @@ distributions {
             from("THIRD_PARTY_NOTICES.md")
             from("examples") {
                 into("examples")
+                exclude("**/build/**", "**/output/**", "**/logs/**", "**/runtime-classpath.txt")
             }
         }
     }
 }
 
-tasks.named<Tar>("distTar") {
+distributionTar {
     compression = Compression.GZIP
     archiveExtension.set("tar.gz")
 }

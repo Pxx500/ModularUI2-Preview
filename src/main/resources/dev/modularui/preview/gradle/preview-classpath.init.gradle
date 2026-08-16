@@ -1,0 +1,44 @@
+gradle.projectsEvaluated {
+    def root = gradle.rootProject
+    if (root.tasks.findByName('_modularUiPreviewClasspath') != null) {
+        return
+    }
+    root.tasks.register('_modularUiPreviewClasspath') {
+        def sourceSets = root.extensions.findByName('sourceSets')
+        if (sourceSets == null) {
+            throw new GradleException('The production project does not expose Java source sets')
+        }
+        def main = sourceSets.findByName('main')
+        if (main == null) {
+            throw new GradleException('The production project does not expose the main source set')
+        }
+        dependsOn(main.classesTaskName)
+        doLast {
+            def outputPath = System.getenv('MODULAR_UI_PREVIEW_CLASSPATH_OUTPUT')
+            if (outputPath == null || outputPath.isBlank()) {
+                throw new GradleException('Missing ModularUI2 Preview classpath output location')
+            }
+            def runtime = root.configurations.findByName(main.runtimeClasspathConfigurationName)
+            if (runtime == null) {
+                throw new GradleException('The production project does not expose the main runtime classpath')
+            }
+            def compile = root.configurations.findByName(main.compileClasspathConfigurationName)
+            if (compile == null) {
+                throw new GradleException('The production project does not expose the main compile classpath')
+            }
+            def entries = new LinkedHashSet<File>()
+            sourceSets.each { sourceSet ->
+                if (!sourceSet.name.toLowerCase(Locale.ROOT).contains('test')) {
+                    entries.addAll(sourceSet.output.files.findAll { it.exists() })
+                }
+            }
+            entries.addAll(compile.files)
+            entries.addAll(runtime.files)
+            def output = new File(outputPath)
+            output.parentFile.mkdirs()
+            output.withWriter('UTF-8') { writer ->
+                entries.each { writer.writeLine(it.absolutePath) }
+            }
+        }
+    }
+}

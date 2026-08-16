@@ -16,6 +16,18 @@ public class GuiScreen extends Gui implements GuiScreenAccessor {
     private List<GuiButton> buttonList = new ArrayList<>();
     private final List<GuiLabel> labelList = new ArrayList<>();
 
+    public static boolean isShiftKeyDown() {
+        return false;
+    }
+
+    public static boolean isCtrlKeyDown() {
+        return false;
+    }
+
+    public static boolean isAltKeyDown() {
+        return false;
+    }
+
     public void drawWorldBackground(int tint) {}
 
     public boolean doesGuiPauseGame() {

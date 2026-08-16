@@ -3,12 +3,20 @@ package dev.modularui.preview;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 
+import dev.modularui.preview.assets.AssetResolver;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
 import java.util.stream.IntStream;
+import javax.imageio.ImageIO;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.lwjgl.opengl.GL11;
+import net.minecraft.util.ResourceLocation;
 
 class PreviewDrawContextTest {
 
@@ -131,6 +139,65 @@ class PreviewDrawContextTest {
             .filter(y -> IntStream.range(0, image.getWidth()).anyMatch(x -> (image.getRGB(x, y) >>> 24) != 0))
             .count();
         assertEquals(1, paintedRows);
+    }
+
+    @Test
+    void clipsScaledGuiCoordinatesToAnOpenGlFramebufferScissor() {
+        BufferedImage image = new BufferedImage(20, 20, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D graphics = image.createGraphics();
+        graphics.scale(2, 2);
+        try {
+            PreviewDrawContext.run(graphics, image.getHeight(), () -> {
+                GL11.glEnable(GL11.GL_SCISSOR_TEST);
+                GL11.glScissor(4, 6, 8, 6);
+                PreviewDrawContext.drawRect(0, 0, 10, 10, Color.RED.getRGB());
+
+                GL11.glDisable(GL11.GL_SCISSOR_TEST);
+                PreviewDrawContext.drawRect(0, 0, 1, 1, Color.BLUE.getRGB());
+            });
+        } finally {
+            graphics.dispose();
+        }
+
+        assertEquals(Color.BLUE.getRGB(), image.getRGB(1, 1));
+        assertEquals(0, image.getRGB(3, 10));
+        assertEquals(Color.RED.getRGB(), image.getRGB(5, 10));
+        assertEquals(0, image.getRGB(12, 10));
+        assertEquals(0, image.getRGB(5, 7));
+        assertEquals(0, image.getRGB(5, 14));
+    }
+
+    @Test
+    void repeatsBoundTexturesWhenOpenGlTextureWrappingIsEnabled(@TempDir Path assets) throws IOException {
+        Path texture = assets.resolve("assets/test/textures/tile.png");
+        Files.createDirectories(texture.getParent());
+        BufferedImage tile = new BufferedImage(2, 1, BufferedImage.TYPE_INT_ARGB);
+        tile.setRGB(0, 0, Color.RED.getRGB());
+        tile.setRGB(1, 0, Color.BLUE.getRGB());
+        ImageIO.write(tile, "png", texture.toFile());
+
+        BufferedImage image = new BufferedImage(8, 2, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D graphics = image.createGraphics();
+        try {
+            PreviewDrawContext.run(graphics, new AssetResolver(List.of(assets)), image.getHeight(), () -> {
+                PreviewDrawContext.bindTexture(new ResourceLocation("test", "textures/tile.png"));
+                GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL11.GL_REPEAT);
+                GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL11.GL_REPEAT);
+                PreviewDrawContext.drawVertices(
+                    GL11.GL_QUADS,
+                    new double[] { 0, 0, 0, 8, 0, 0, 8, 2, 0, 0, 2, 0 },
+                    new double[] { 0, 0, 4, 0, 4, 1, 0, 1 },
+                    new int[] { Color.WHITE.getRGB(), Color.WHITE.getRGB(), Color.WHITE.getRGB(),
+                        Color.WHITE.getRGB() },
+                    4);
+            });
+        } finally {
+            graphics.dispose();
+        }
+
+        for (int x = 0; x < image.getWidth(); x++) {
+            assertEquals(x % 2 == 0 ? Color.RED.getRGB() : Color.BLUE.getRGB(), image.getRGB(x, 0));
+        }
     }
 
     private static void drawQuad(int left, int top, int right, int bottom, int color) {

@@ -26,7 +26,11 @@ public final class GL11 {
     public static final int GL_DEPTH_TEST = 0x0B71;
     public static final int GL_LIGHTING = 0x0B50;
     public static final int GL_STENCIL_TEST = 0x0B90;
+    public static final int GL_SCISSOR_TEST = 0x0C11;
     public static final int GL_TEXTURE_2D = 0x0DE1;
+    public static final int GL_TEXTURE_WRAP_S = 0x2802;
+    public static final int GL_TEXTURE_WRAP_T = 0x2803;
+    public static final int GL_REPEAT = 0x2901;
     public static final int GL_TEXTURE_BINDING_2D = 0x8069;
     public static final int GL_MODELVIEW = 0x1700;
     public static final int GL_PROJECTION = 0x1701;
@@ -167,6 +171,10 @@ public final class GL11 {
 
     public static void glReadPixels(int x, int y, int width, int height, int format, int type, FloatBuffer target) {}
 
+    public static void glScissor(int x, int y, int width, int height) {
+        PreviewDrawContext.scissor(x, y, width, height);
+    }
+
     public static void glShadeModel(int mode) {}
 
     public static void glStencilFunc(int function, int reference, int mask) {}
@@ -175,6 +183,10 @@ public final class GL11 {
 
     public static void glStencilOp(int fail, int depthFail, int depthPass) {
         PreviewDrawContext.stencilOperation(depthPass);
+    }
+
+    public static void glTexParameteri(int target, int parameter, int value) {
+        PreviewDrawContext.textureParameter(target, parameter, value);
     }
 
     public static void glViewport(int x, int y, int width, int height) {}

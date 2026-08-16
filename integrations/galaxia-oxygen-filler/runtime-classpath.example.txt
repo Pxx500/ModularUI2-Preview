@@ -1,5 +1,0 @@
-# Generate runtime-classpath.txt from the Galaxia compile/runtime classpath.
-# It must include, at minimum:
-# C:\path\to\Galaxia\build\classes\java\main
-# C:\path\to\Galaxia\build\resources\main
-# C:\path\to\each production dependency required by OxygenFillerGUI

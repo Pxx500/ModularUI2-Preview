@@ -7,6 +7,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.nio.file.Files;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 import java.util.Set;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
@@ -44,6 +47,9 @@ class DistributionLayoutTest {
             assertTrue(entries.stream().anyMatch(name -> name.equals("bin/modularui2-preview.bat")));
             assertTrue(entries.stream().anyMatch(name -> name.startsWith("lib/") && name.endsWith(".jar")));
             assertFalse(entries.stream().anyMatch(name -> name.endsWith("java-executable.txt")));
+            assertFalse(
+                entries.stream().anyMatch(DistributionLayoutTest::isGeneratedExampleArtifact),
+                "Distribution must not contain generated example output");
 
             String checkout = Path.of("").toAbsolutePath().normalize().toString();
             assertNoTextEntryContains(archive, entry -> entry.getName().endsWith(".bat")
@@ -52,8 +58,27 @@ class DistributionLayoutTest {
         }
     }
 
+    @Test
+    void releaseChecksumMatchesThePortableZip() throws Exception {
+        Path archive = Path.of(System.getProperty("preview.distribution.zip"));
+        Path checksumFile = Path.of(System.getProperty("preview.distribution.zip.checksum"));
+        String expected = Files.readString(checksumFile, StandardCharsets.UTF_8).split("\\s+")[0];
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        try (var input = Files.newInputStream(archive)) {
+            input.transferTo(new java.security.DigestOutputStream(java.io.OutputStream.nullOutputStream(), digest));
+        }
+
+        assertTrue(expected.equals(HexFormat.of().formatHex(digest.digest())));
+    }
+
     private static void assertContains(Set<String> entries, String required) {
         assertTrue(entries.contains(required), () -> "Missing distribution entry: " + required);
+    }
+
+    private static boolean isGeneratedExampleArtifact(String name) {
+        return name.startsWith("examples/")
+            && (name.contains("/build/") || name.contains("/output/") || name.contains("/logs/")
+                || name.endsWith("/runtime-classpath.txt"));
     }
 
     private static void assertNoTextEntryContains(ZipFile archive, Predicate<ZipEntry> filter, String value)

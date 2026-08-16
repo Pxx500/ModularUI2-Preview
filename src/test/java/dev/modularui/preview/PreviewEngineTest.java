@@ -174,7 +174,7 @@ class PreviewEngineTest {
     }
 
     @Test
-    void sharesInstalledTranslationsWithProductionRuntimeClasses() throws Exception {
+    void sharesInstalledTranslationsWithProductionRuntimeClassesThroughoutTheSession() throws Exception {
         Path projectRoot = Files.createDirectories(temporaryDirectory.resolve("translated-panel-preview"));
         Path libraries = Files.createDirectories(projectRoot.resolve("libs"));
         writeClassJar(
@@ -193,6 +193,7 @@ class PreviewEngineTest {
                 package example;
 
                 import com.cleanroommc.modularui.screen.ModularPanel;
+                import com.cleanroommc.modularui.widgets.ButtonWidget;
                 import dev.modularui.preview.PreviewEntrypoint;
                 import net.minecraft.util.StatCollector;
 
@@ -203,16 +204,38 @@ class PreviewEngineTest {
                         if (!"Translated label".equals(label)) {
                             throw new IllegalStateException("Production runtime did not receive preview translations: " + label);
                         }
-                        return ModularPanel.defaultPanel("translated_panel", 176, 220);
+                        return ModularPanel.defaultPanel("translated_panel", 176, 220)
+                            .child(new TranslatedButton().pos(68, 100).size(40, 20));
+                    }
+
+                    private static final class TranslatedButton extends ButtonWidget<TranslatedButton> {
+                        private TranslatedButton() {
+                            onMousePressed(mouseButton -> {
+                                String label = StatCollector.translateToLocal("example.preview.label");
+                                if (!"Translated label".equals(label)) {
+                                    throw new IllegalStateException(
+                                        "Live session interaction did not receive preview translations: " + label);
+                                }
+                                return true;
+                            });
+                        }
                     }
                 }
                 """);
 
-        try (PreviewSession ignored = PreviewEngine.open(
+        try (PreviewSession session = PreviewEngine.open(
             projectRoot,
             "example.TranslatedPanelPreview",
             new PreviewScreen(800, 600, 1))) {
-            // Opening the production panel proves that its StatCollector sees the installed language map.
+            WidgetBounds button = session.widgets()
+                .stream()
+                .filter(widget -> widget.type()
+                    .equals("TranslatedButton"))
+                .findFirst()
+                .orElseThrow();
+            session.moveMouse(button.screen().x() + button.screen().width() / 2,
+                button.screen().y() + button.screen().height() / 2);
+            assertTrue(session.click(MouseButton.LEFT));
         }
     }
 
@@ -228,7 +251,7 @@ class PreviewEngineTest {
             WidgetBounds button = session.widgets()
                 .stream()
                 .filter(widget -> widget.type()
-                    .equals("ButtonWidget"))
+                    .equals("DeferredButton"))
                 .findFirst()
                 .orElseThrow();
             assertTrue(containsColor(session.render().image(), button.screen(), 0xFFFF5555));
@@ -268,7 +291,7 @@ class PreviewEngineTest {
         assertTrue(containsColor(ImageIO.read(capture.resolve("preview.png").toFile()),
             new Bounds(380, 290, 40, 20), 0xFF55FF55));
         assertTrue(Files.readString(capture.resolve("bounds.json"))
-            .contains("\"ButtonWidget\""));
+            .contains("\"DeferredButton\""));
         assertTrue(Files.readString(capture.resolve("actions.json"))
             .contains("\"handled\": true"));
     }
@@ -453,26 +476,41 @@ class PreviewEngineTest {
                     @Override
                     public Object createPanel(PreviewEntrypoint.Context context) {
                         return ModularPanel.defaultPanel("interactive_panel", 176, 100)
-                            .child(new ButtonWidget<>()
+                            .child(new DeferredButton()
                                 .name("toggle")
                                 .pos(68, 40)
                                 .size(40, 20)
-                                .onMousePressed(mouseButton -> {
-                                    color = mouseButton == 1 ? 0xFF5555FF : 0xFF55FF55;
-                                    return true;
-                                })
-                                .onMouseReleased(mouseButton -> {
-                                    if (mouseButton == 1) color = 0xFFFFFF55;
-                                    return true;
-                                })
-                                .onMouseScrolled((direction, amount) -> {
-                                    color = 0xFF55FFFF;
-                                    return true;
-                                })
                                 .child(new TextWidget<>(IKey.dynamic(() -> color == 0xFFFF5555 ? "OFF" : "ON"))
                                     .color(() -> color)
                                     .shadow(false)
                                     .coverChildren()));
+                    }
+
+                    private final class DeferredButton extends ButtonWidget<DeferredButton> {
+                        private Integer pendingColor;
+
+                        private DeferredButton() {
+                            onMousePressed(mouseButton -> {
+                                pendingColor = mouseButton == 1 ? 0xFF5555FF : 0xFF55FF55;
+                                return true;
+                            });
+                            onMouseReleased(mouseButton -> {
+                                if (mouseButton == 1) pendingColor = 0xFFFFFF55;
+                                return true;
+                            });
+                            onMouseScrolled((direction, amount) -> {
+                                pendingColor = 0xFF55FFFF;
+                                return true;
+                            });
+                        }
+
+                        @Override
+                        public void onUpdate() {
+                            super.onUpdate();
+                            if (pendingColor == null) return;
+                            color = pendingColor;
+                            pendingColor = null;
+                        }
                     }
                 }
                 """);

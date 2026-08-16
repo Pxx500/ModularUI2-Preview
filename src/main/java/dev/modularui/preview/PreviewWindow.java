@@ -36,10 +36,14 @@ public final class PreviewWindow {
     private static final Duration WATCH_DEBOUNCE = Duration.ofMillis(300);
 
     public void open(Path projectRoot, String className, PreviewScreen screen) throws Exception {
+        open(projectRoot, className, null, screen);
+    }
+
+    public void open(Path projectRoot, String className, String scenarioId, PreviewScreen screen) throws Exception {
         PreviewInputQueue inputs = new PreviewInputQueue();
         AtomicReference<Throwable> failure = new AtomicReference<>();
         Thread sessionThread = new Thread(
-            () -> runSession(projectRoot, className, screen, inputs, failure),
+            () -> runSession(projectRoot, className, scenarioId, screen, inputs, failure),
             "modularui-preview-session");
         sessionThread.start();
         sessionThread.join();
@@ -47,20 +51,25 @@ public final class PreviewWindow {
     }
 
     public void watch(Path projectRoot, String className, Path outputDirectory, Path configuration) throws Exception {
+        watch(projectRoot, className, null, outputDirectory, configuration);
+    }
+
+    public void watch(Path projectRoot, String className, String scenarioId, Path outputDirectory,
+        Path configuration) throws Exception {
         PreviewInputQueue inputs = new PreviewInputQueue();
         AtomicReference<Throwable> failure = new AtomicReference<>();
         Thread sessionThread = new Thread(
-            () -> runWatch(projectRoot, className, outputDirectory, configuration, inputs, failure),
+            () -> runWatch(projectRoot, className, scenarioId, outputDirectory, configuration, inputs, failure),
             "modularui-preview-watch");
         sessionThread.start();
         sessionThread.join();
         rethrow(failure.get());
     }
 
-    private void runSession(Path projectRoot, String className, PreviewScreen screen, PreviewInputQueue inputs,
-        AtomicReference<Throwable> failure) {
+    private void runSession(Path projectRoot, String className, String scenarioId, PreviewScreen screen,
+        PreviewInputQueue inputs, AtomicReference<Throwable> failure) {
         WindowHandle window = null;
-        try (PreviewSession session = PreviewEngine.open(projectRoot, className, screen)) {
+        try (PreviewSession session = PreviewEngine.open(projectRoot, className, scenarioId, screen)) {
             window = createWindow(className, session.render().image(), inputs);
             while (true) {
                 PreviewInput input = inputs.take();
@@ -76,8 +85,8 @@ public final class PreviewWindow {
         }
     }
 
-    private void runWatch(Path projectRoot, String className, Path outputDirectory, Path configuration,
-        PreviewInputQueue inputs, AtomicReference<Throwable> failure) {
+    private void runWatch(Path projectRoot, String className, String scenarioId, Path outputDirectory,
+        Path configuration, PreviewInputQueue inputs, AtomicReference<Throwable> failure) {
         WindowHandle window = null;
         PreviewGeneration active = null;
         try {
@@ -85,7 +94,7 @@ public final class PreviewWindow {
             PreviewInputSnapshot initial = capture(projectRoot, configuration, window);
             PreviewWatchState watchState = new PreviewWatchState(initial, WATCH_DEBOUNCE);
             window.showBuilding("Building initial preview...");
-            active = rebuild(projectRoot, className, outputDirectory, configuration, window, active);
+            active = rebuild(projectRoot, className, scenarioId, outputDirectory, configuration, window, active);
 
             while (true) {
                 PreviewInput input = inputs.poll(WATCH_POLL_MILLIS);
@@ -100,7 +109,7 @@ public final class PreviewWindow {
                 }
                 if (!watchState.rebuildReady(System.nanoTime())) continue;
                 window.showBuilding("Rebuilding preview...");
-                active = rebuild(projectRoot, className, outputDirectory, configuration, window, active);
+                active = rebuild(projectRoot, className, scenarioId, outputDirectory, configuration, window, active);
             }
         } catch (Throwable throwable) {
             failure.set(throwable);
@@ -111,14 +120,15 @@ public final class PreviewWindow {
         }
     }
 
-    private PreviewGeneration rebuild(Path projectRoot, String className, Path outputDirectory, Path configuration,
-        WindowHandle window, PreviewGeneration active) {
+    private PreviewGeneration rebuild(Path projectRoot, String className, String scenarioId, Path outputDirectory,
+        Path configuration, WindowHandle window, PreviewGeneration active) {
         PreviewGeneration candidate = null;
         try {
             PreviewScreen screen = PreviewScreen.load(configuration);
             candidate = PreviewGeneration.open(
                 projectRoot,
                 className,
+                scenarioId,
                 screen,
                 projectRoot.resolve("build/preview-generations"));
             new UiPreviewRunner().writeArtifacts(
