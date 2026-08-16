@@ -230,7 +230,43 @@ public final class MyMachinePreview implements PreviewEntrypoint {
 
 `previewedClass()` records the production GUI class in `bounds.json`. This makes it possible to verify that the screenshot came from production code rather than a lookalike adapter.
 
-The Galaxia Oxygen Filler under `integrations/galaxia-oxygen-filler` demonstrates this integration shape. It requires a compiled Galaxia checkout and its production dependencies in `runtime-classpath.txt`.
+For a larger production integration, keep the preview catalog in the target repository, for example under `tools/gui-preview`. The previewer builds the required production classes and discovers their runtime classpath automatically.
+
+### Production GUI catalog
+
+Implement `PreviewCatalog` when one project needs several production GUI states. Each `PreviewScenario` names the production class, creates only the local client-visible state needed by that GUI, and may attach tags, expected assets, or an action script:
+
+```java
+public final class MyModPreviews implements PreviewCatalog {
+
+    @Override
+    public List<PreviewScenario> scenarios() {
+        return List.of(PreviewScenario.define(
+            "machine/default",
+            "machine screen with representative local state",
+            "machine",
+            MyMachineGui.class,
+            MyMachinePreview::new)
+            .tags("default", "interaction")
+            .actions("actions/machine.txt"));
+    }
+}
+```
+
+Set `preview.entrypoint` in `preview.properties` to the catalog class. Scenario IDs use `family/name`. The `default` tag selects the canonical verification state. Every production class in the catalog must have exactly one `default` scenario.
+
+```bat
+preview.bat list project-directory
+preview.bat doctor project-directory
+preview.bat open project-directory machine/default
+preview.bat render project-directory machine/default
+preview.bat verify project-directory
+preview.bat verify project-directory machine
+preview.bat verify project-directory --full
+preview.bat verify project-directory --failed
+```
+
+`verify` runs default scenarios in isolated workers. `--full` also runs non-default states and their action scripts. `--failed` reruns failures from the previous report. Use `list` to discover IDs and `doctor` to check the production classpath, assets, and catalog before rendering.
 
 ## Additional project inputs
 

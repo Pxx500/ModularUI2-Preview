@@ -6,7 +6,13 @@ import net.minecraft.item.ItemStack;
 
 public class RenderItem {
 
+    private static final RenderItem INSTANCE = new RenderItem();
+
     public float zLevel;
+
+    public static RenderItem getInstance() {
+        return INSTANCE;
+    }
 
     public void renderItemAndEffectIntoGUI(FontRenderer fontRenderer, TextureManager textureManager, ItemStack stack,
         int x, int y) {}

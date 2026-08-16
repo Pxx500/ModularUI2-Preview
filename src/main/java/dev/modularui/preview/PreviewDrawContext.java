@@ -4,15 +4,19 @@ import dev.modularui.preview.assets.AssetResolver;
 import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Graphics2D;
+import java.awt.Paint;
 import java.awt.Polygon;
 import java.awt.RenderingHints;
 import java.awt.Shape;
+import java.awt.TexturePaint;
 import java.awt.image.BufferedImage;
 import java.awt.geom.AffineTransform;
 import java.awt.geom.Area;
 import java.awt.geom.Line2D;
+import java.awt.geom.NoninvertibleTransformException;
 import java.awt.geom.Path2D;
 import java.awt.geom.Point2D;
+import java.awt.geom.Rectangle2D;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.FloatBuffer;
@@ -35,9 +39,18 @@ public final class PreviewDrawContext {
         run(graphics, null, drawable);
     }
 
+    public static void run(Graphics2D graphics, int framebufferHeight, Runnable drawable) {
+        run(graphics, null, framebufferHeight, drawable);
+    }
+
     public static List<String> run(Graphics2D graphics, AssetResolver assets, Runnable drawable) {
+        return run(graphics, assets, -1, drawable);
+    }
+
+    public static List<String> run(
+        Graphics2D graphics, AssetResolver assets, int framebufferHeight, Runnable drawable) {
         State previous = CURRENT.get();
-        State state = new State(graphics, assets);
+        State state = new State(graphics, assets, framebufferHeight);
         CURRENT.set(state);
         try {
             drawable.run();
@@ -123,6 +136,10 @@ public final class PreviewDrawContext {
         State state = requireState();
         if (capability == org.lwjgl.opengl.GL11.GL_STENCIL_TEST) state.stencilEnabled = true;
         if (capability == org.lwjgl.opengl.GL11.GL_LINE_SMOOTH) state.smoothLines = true;
+        if (capability == org.lwjgl.opengl.GL11.GL_SCISSOR_TEST) {
+            state.scissorEnabled = true;
+            applyClip(state);
+        }
     }
 
     public static void disable(int capability) {
@@ -131,10 +148,34 @@ public final class PreviewDrawContext {
             state.smoothLines = false;
             return;
         }
-        if (capability != org.lwjgl.opengl.GL11.GL_STENCIL_TEST) return;
-        state.stencilEnabled = false;
-        state.stencilClips.clear();
-        state.graphics.setClip(state.originalClip);
+        if (capability == org.lwjgl.opengl.GL11.GL_SCISSOR_TEST) {
+            state.scissorEnabled = false;
+            applyClip(state);
+            return;
+        }
+        if (capability == org.lwjgl.opengl.GL11.GL_STENCIL_TEST) {
+            state.stencilEnabled = false;
+            state.stencilClips.clear();
+            applyClip(state);
+        }
+    }
+
+    public static void scissor(int x, int y, int width, int height) {
+        State state = requireState();
+        if (state.framebufferHeight < 0) {
+            throw new IllegalStateException("Framebuffer height is required for OpenGL scissor clipping");
+        }
+        Shape framebufferClip = new Rectangle2D.Double(
+            x,
+            state.framebufferHeight - y - height,
+            Math.max(0, width),
+            Math.max(0, height));
+        try {
+            state.scissorClip = state.graphics.getTransform().createInverse().createTransformedShape(framebufferClip);
+        } catch (NoninvertibleTransformException exception) {
+            throw new IllegalStateException("Could not map OpenGL scissor bounds to GUI coordinates", exception);
+        }
+        if (state.scissorEnabled) applyClip(state);
     }
 
     public static void colorMask(boolean red, boolean green, boolean blue, boolean alpha) {
@@ -189,6 +230,8 @@ public final class PreviewDrawContext {
             BufferedImage image = ImageIO.read(new ByteArrayInputStream(asset.bytes()));
             if (image == null) throw new IllegalArgumentException("Unsupported preview texture: " + asset.source());
             state.texture = image;
+            state.repeatTextureX = false;
+            state.repeatTextureY = false;
             state.assetSources.add(asset.source());
         } catch (IOException exception) {
             throw new IllegalStateException("Could not decode preview texture: " + asset.source(), exception);
@@ -245,6 +288,17 @@ public final class PreviewDrawContext {
             (float) values[4], (float) values[5], 0, 1
         };
         target.put(matrix);
+    }
+
+    public static void textureParameter(int target, int parameter, int value) {
+        if (target != org.lwjgl.opengl.GL11.GL_TEXTURE_2D) return;
+        State state = requireState();
+        if (parameter == org.lwjgl.opengl.GL11.GL_TEXTURE_WRAP_S) {
+            state.repeatTextureX = value == org.lwjgl.opengl.GL11.GL_REPEAT;
+        }
+        if (parameter == org.lwjgl.opengl.GL11.GL_TEXTURE_WRAP_T) {
+            state.repeatTextureY = value == org.lwjgl.opengl.GL11.GL_REPEAT;
+        }
     }
 
     private static Graphics2D requireGraphics() {
@@ -327,8 +381,20 @@ public final class PreviewDrawContext {
             state.stencilClips.push(clip);
         }
         state.capturedStencil = null;
-        if (state.stencilClips.isEmpty()) state.graphics.setClip(state.originalClip);
-        else state.graphics.setClip(state.stencilClips.peek());
+        applyClip(state);
+    }
+
+    private static void applyClip(State state) {
+        Area clip = state.originalClip == null ? null : new Area(state.originalClip);
+        if (state.scissorEnabled && state.scissorClip != null) clip = intersect(clip, state.scissorClip);
+        if (!state.stencilClips.isEmpty()) clip = intersect(clip, state.stencilClips.peek());
+        state.graphics.setClip(clip);
+    }
+
+    private static Area intersect(Area current, Shape next) {
+        if (current == null) return new Area(next);
+        current.intersect(new Area(next));
+        return current;
     }
 
     private static void drawLine(double[] positions, int first, int second) {
@@ -372,6 +438,20 @@ public final class PreviewDrawContext {
             maxU = Math.max(maxU, textureCoordinates[index * 2]);
             maxV = Math.max(maxV, textureCoordinates[index * 2 + 1]);
         }
+        if (state.repeatTextureX && state.repeatTextureY && maxU > minU && maxV > minV) {
+            double tileWidth = (maxX - minX) / (maxU - minU);
+            double tileHeight = (maxY - minY) / (maxV - minV);
+            Rectangle2D anchor = new Rectangle2D.Double(
+                minX - minU * tileWidth,
+                minY - minV * tileHeight,
+                tileWidth,
+                tileHeight);
+            Paint previousPaint = state.graphics.getPaint();
+            state.graphics.setPaint(new TexturePaint(state.texture, anchor));
+            state.graphics.fill(new Rectangle2D.Double(minX, minY, maxX - minX, maxY - minY));
+            state.graphics.setPaint(previousPaint);
+            return;
+        }
         int sourceX0 = clamp((int) Math.floor(minU * state.texture.getWidth()), 0, state.texture.getWidth());
         int sourceY0 = clamp((int) Math.floor(minV * state.texture.getHeight()), 0, state.texture.getHeight());
         int sourceX1 = clamp((int) Math.ceil(maxU * state.texture.getWidth()), 0, state.texture.getWidth());
@@ -413,6 +493,7 @@ public final class PreviewDrawContext {
 
         private final Graphics2D graphics;
         private final AssetResolver assets;
+        private final int framebufferHeight;
         private final Shape originalClip;
         private final Deque<AffineTransform> matrices = new ArrayDeque<>();
         private final Deque<Area> stencilClips = new ArrayDeque<>();
@@ -423,14 +504,19 @@ public final class PreviewDrawContext {
         private int immediateMode = -1;
         private final List<Double> immediateVertices = new ArrayList<>();
         private boolean stencilEnabled;
+        private boolean scissorEnabled;
+        private boolean repeatTextureX;
+        private boolean repeatTextureY;
         private boolean smoothLines;
         private float lineWidth = 1F;
         private int stencilDepthPass = org.lwjgl.opengl.GL11.GL_KEEP;
         private Area capturedStencil;
+        private Shape scissorClip;
 
-        private State(Graphics2D graphics, AssetResolver assets) {
+        private State(Graphics2D graphics, AssetResolver assets, int framebufferHeight) {
             this.graphics = graphics;
             this.assets = assets;
+            this.framebufferHeight = framebufferHeight;
             this.originalClip = graphics.getClip();
         }
     }

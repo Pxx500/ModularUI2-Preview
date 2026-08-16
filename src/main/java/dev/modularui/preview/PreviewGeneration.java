@@ -19,10 +19,15 @@ final class PreviewGeneration implements AutoCloseable {
     }
 
     static PreviewGeneration open(Path projectRoot, String className, PreviewScreen screen, Path generationsRoot) {
+        return open(projectRoot, className, null, screen, generationsRoot);
+    }
+
+    static PreviewGeneration open(Path projectRoot, String className, String scenarioId, PreviewScreen screen,
+        Path generationsRoot) {
         Path root = createRoot(generationsRoot);
         PreviewSession session = null;
         try {
-            session = PreviewEngine.open(projectRoot, className, screen, root.resolve("classes"));
+            session = PreviewEngine.open(projectRoot, className, scenarioId, screen, root.resolve("classes"));
             return new PreviewGeneration(root, session, session.render());
         } catch (RuntimeException | Error failure) {
             cleanupFailedOpen(root, session, failure);

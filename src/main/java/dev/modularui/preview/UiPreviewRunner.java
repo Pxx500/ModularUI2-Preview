@@ -22,7 +22,12 @@ public final class UiPreviewRunner {
 
     public PreviewResult preview(Path projectRoot, String className, Path outputDirectory, PreviewScreen screen)
         throws IOException {
-        try (PreviewSession session = PreviewEngine.open(projectRoot, className, screen)) {
+        return preview(projectRoot, className, null, outputDirectory, screen);
+    }
+
+    public PreviewResult preview(Path projectRoot, String className, String scenarioId, Path outputDirectory,
+        PreviewScreen screen) throws IOException {
+        try (PreviewSession session = PreviewEngine.open(projectRoot, className, scenarioId, screen)) {
             PreviewResult result = session.render();
             writeArtifacts(outputDirectory, className, session, result);
             return result;
@@ -179,6 +184,7 @@ public final class UiPreviewRunner {
         json.append(",\n  \"previewedCodeSource\": \"")
             .append(escapeJson(session.previewedCodeSource().toString()))
             .append("\"");
+        session.scenario().ifPresent(scenario -> appendScenario(json, scenario));
         json.append(",\n  \"panelName\": \"")
             .append(escapeJson(session.panelName()))
             .append("\"");
@@ -215,6 +221,30 @@ public final class UiPreviewRunner {
         appendWarnings(json, result.warnings());
         json.append("\n  ]\n}\n");
         return json.toString();
+    }
+
+    private void appendScenario(StringBuilder json, PreviewScenario.Metadata scenario) {
+        json.append(",\n  \"scenario\": {\"id\": \"")
+            .append(escapeJson(scenario.id()))
+            .append("\", \"description\": \"")
+            .append(escapeJson(scenario.description()))
+            .append("\", \"family\": \"")
+            .append(escapeJson(scenario.family()))
+            .append("\", \"previewedClass\": \"")
+            .append(escapeJson(scenario.previewedClass()))
+            .append("\", \"timeout\": \"")
+            .append(scenario.timeout().name().toLowerCase(java.util.Locale.ROOT))
+            .append("\", \"tags\": [");
+        appendWarnings(json, scenario.tags());
+        json.append("\n  ], \"expectedAssets\": [");
+        appendWarnings(json, scenario.expectedAssets());
+        json.append("\n  ]");
+        if (scenario.actions() != null) {
+            json.append(", \"actions\": \"")
+                .append(escapeJson(scenario.actions()))
+                .append('"');
+        }
+        json.append('}');
     }
 
     private void appendWidgets(StringBuilder json, List<WidgetBounds> widgets) {

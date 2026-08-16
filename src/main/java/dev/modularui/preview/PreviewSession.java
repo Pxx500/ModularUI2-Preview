@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Supplier;
 
 /** A live, isolated preview of one production ModularUI2 panel. */
@@ -19,6 +20,7 @@ public final class PreviewSession implements AutoCloseable {
     private final String panelClassName;
     private final Bounds panelBounds;
     private final Path panelCodeSource;
+    private final PreviewScenario.Metadata scenario;
     private final Thread ownerThread;
     private final Interaction interaction;
     private final Supplier<PreviewResult> renderer;
@@ -27,7 +29,7 @@ public final class PreviewSession implements AutoCloseable {
     public PreviewSession(AutoCloseable runtime, AutoCloseable lifecycle, String entrypointClassName,
         Path entrypointCodeSource, String previewedClassName, Path previewedCodeSource, String panelName,
         String panelClassName, Bounds panelBounds, Path panelCodeSource, List<WidgetBounds> widgets,
-        Interaction interaction, Supplier<PreviewResult> renderer) {
+        PreviewScenario.Metadata scenario, Interaction interaction, Supplier<PreviewResult> renderer) {
         this.runtime = runtime;
         this.lifecycle = lifecycle;
         this.entrypointClassName = entrypointClassName;
@@ -38,6 +40,7 @@ public final class PreviewSession implements AutoCloseable {
         this.panelClassName = panelClassName;
         this.panelBounds = panelBounds;
         this.panelCodeSource = panelCodeSource;
+        this.scenario = scenario;
         this.ownerThread = Thread.currentThread();
         this.widgets = List.copyOf(widgets);
         this.interaction = interaction;
@@ -74,6 +77,10 @@ public final class PreviewSession implements AutoCloseable {
 
     public Path panelCodeSource() {
         return panelCodeSource;
+    }
+
+    public Optional<PreviewScenario.Metadata> scenario() {
+        return Optional.ofNullable(scenario);
     }
 
     public List<WidgetBounds> widgets() {

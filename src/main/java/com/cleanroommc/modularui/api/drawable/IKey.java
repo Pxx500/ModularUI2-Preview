@@ -1,12 +1,10 @@
 package com.cleanroommc.modularui.api.drawable;
 
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
 import java.util.Locale;
-import java.util.Properties;
 
 import com.cleanroommc.modularui.widgets.TextWidget;
+
+import net.minecraft.util.StatCollector;
 
 public interface IKey {
 
@@ -47,8 +45,6 @@ public interface IKey {
 
     final class LangKey implements IKey {
 
-        private static final Properties TRANSLATIONS = loadTranslations();
-
         private final String key;
         private final Object[] arguments;
 
@@ -59,20 +55,8 @@ public interface IKey {
 
         @Override
         public String get() {
-            String translated = TRANSLATIONS.getProperty(key, key);
+            String translated = StatCollector.translateToLocal(key);
             return arguments.length == 0 ? translated : String.format(Locale.ROOT, translated, arguments);
-        }
-
-        private static Properties loadTranslations() {
-            Properties translations = new Properties();
-            try (var stream = IKey.class.getResourceAsStream("/assets/galaxia/lang/en_US.lang")) {
-                if (stream != null) {
-                    translations.load(new InputStreamReader(stream, StandardCharsets.UTF_8));
-                }
-            } catch (IOException exception) {
-                throw new IllegalStateException("Could not load preview translations", exception);
-            }
-            return translations;
         }
     }
 }

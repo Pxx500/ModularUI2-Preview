@@ -95,9 +95,9 @@ jobs:
       - name: Build release archives
         env:
           RELEASE_VERSION: ${{ github.ref_name }}
-        run: ./gradlew distZip distTar -PreleaseVersion="${RELEASE_VERSION#v}" --no-daemon --stacktrace --console=plain
+        run: ./gradlew distChecksums -PreleaseVersion="${RELEASE_VERSION#v}" --no-daemon --stacktrace --console=plain
 
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" build/distributions/*.zip build/distributions/*.tar.gz --verify-tag --title "$GITHUB_REF_NAME" --notes ""
+        run: gh release create "$GITHUB_REF_NAME" build/distributions/*.zip build/distributions/*.tar.gz build/distributions/*.sha256 --verify-tag --title "$GITHUB_REF_NAME" --notes ""

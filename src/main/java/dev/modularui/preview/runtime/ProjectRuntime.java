@@ -2,10 +2,12 @@ package dev.modularui.preview.runtime;
 
 import dev.modularui.preview.Bounds;
 import dev.modularui.preview.PreviewEntrypoint;
+import dev.modularui.preview.PreviewCatalog;
 import dev.modularui.preview.PreviewDrawContext;
 import dev.modularui.preview.PreviewResult;
 import dev.modularui.preview.PreviewScreen;
 import dev.modularui.preview.PreviewSession;
+import dev.modularui.preview.PreviewScenario;
 import dev.modularui.preview.MouseButton;
 import dev.modularui.preview.ScreenLayout;
 import dev.modularui.preview.ScrollDirection;
@@ -26,6 +28,8 @@ import java.net.URLClassLoader;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
+import net.minecraft.client.Minecraft;
 import net.minecraft.util.StatCollector;
 
 public final class ProjectRuntime implements AutoCloseable {
@@ -48,10 +52,15 @@ public final class ProjectRuntime implements AutoCloseable {
     }
 
     public static PreviewSession openSession(PreviewProject project, String entrypointName, PreviewScreen previewScreen) {
+        return openSession(project, entrypointName, null, previewScreen);
+    }
+
+    public static PreviewSession openSession(PreviewProject project, String entrypointName, String scenarioId,
+        PreviewScreen previewScreen) {
         ProjectRuntime runtime = open(project.runtimeArtifacts());
         try {
             runtime.initialiseForgeClientSide();
-            return runtime.createSession(project, entrypointName, previewScreen);
+            return runtime.createSession(project, entrypointName, scenarioId, previewScreen);
         } catch (RuntimeException | LinkageError exception) {
             try {
                 runtime.close();
@@ -59,6 +68,15 @@ public final class ProjectRuntime implements AutoCloseable {
                 exception.addSuppressed(closeFailure);
             }
             throw exception;
+        }
+    }
+
+    public static List<PreviewScenario.Metadata> listScenarios(PreviewProject project, String entrypointName) {
+        try (ProjectRuntime runtime = open(project.runtimeArtifacts())) {
+            runtime.initialiseForgeClientSide();
+            return runtime.readScenarios(entrypointName);
+        } catch (IOException exception) {
+            throw new IllegalStateException("Could not close preview catalog runtime", exception);
         }
     }
 
@@ -100,17 +118,42 @@ public final class ProjectRuntime implements AutoCloseable {
         return type.isPrimitive() && type != void.class ? Array.get(Array.newInstance(type, 1), 0) : null;
     }
 
-    private PreviewSession createSession(PreviewProject project, String entrypointName, PreviewScreen previewScreen) {
+    private List<PreviewScenario.Metadata> readScenarios(String entrypointName) {
+        Thread thread = Thread.currentThread();
+        ClassLoader previous = thread.getContextClassLoader();
+        thread.setContextClassLoader(classLoader);
+        try {
+            Object root = instantiate(loadClass(entrypointName));
+            if (!(root instanceof PreviewCatalog catalog)) {
+                throw new IllegalArgumentException("Preview entrypoint is not a scenario catalog: " + entrypointName);
+            }
+            return catalog.validatedScenarios()
+                .stream()
+                .map(PreviewScenario::metadata)
+                .toList();
+        } catch (ClassNotFoundException exception) {
+            throw new IllegalStateException("Could not load preview catalog", exception);
+        } finally {
+            thread.setContextClassLoader(previous);
+        }
+    }
+
+    private PreviewSession createSession(PreviewProject project, String entrypointName, String scenarioId,
+        PreviewScreen previewScreen) {
         Thread thread = Thread.currentThread();
         ClassLoader previous = thread.getContextClassLoader();
         thread.setContextClassLoader(classLoader);
         try {
             Class<?> entrypointClass = loadClass(entrypointName);
-            if (!PreviewEntrypoint.class.isAssignableFrom(entrypointClass)) {
+            if (!PreviewEntrypoint.class.isAssignableFrom(entrypointClass)
+                && !PreviewCatalog.class.isAssignableFrom(entrypointClass)) {
                 throw new IllegalArgumentException(
-                    "Preview entrypoint must implement " + PreviewEntrypoint.class.getName() + ": " + entrypointName);
+                    "Preview entrypoint must implement " + PreviewEntrypoint.class.getName() + " or "
+                        + PreviewCatalog.class.getName() + ": " + entrypointName);
             }
-            PreviewEntrypoint entrypoint = (PreviewEntrypoint) instantiate(entrypointClass);
+            Object root = instantiate(entrypointClass);
+            ResolvedEntrypoint resolved = resolveEntrypoint(root, entrypointName, scenarioId);
+            PreviewEntrypoint entrypoint = resolved.entrypoint();
             Class<?> previewedClass = entrypoint.previewedClass();
             if (previewedClass == null) {
                 throw new IllegalArgumentException("Preview entrypoint returned a null previewed class: " + entrypointName);
@@ -118,6 +161,9 @@ public final class ProjectRuntime implements AutoCloseable {
             AssetResolver assets = createAssetResolver(project);
             AssetResolver.Translations translations = assets.translations("en_US");
             StatCollector.installTranslations(translations.values());
+            Minecraft.getMinecraft().displayWidth = previewScreen.width();
+            Minecraft.getMinecraft().displayHeight = previewScreen.height();
+            Minecraft.getMinecraft().gameSettings.guiScale = previewScreen.requestedGuiScale();
             Class<?> modularSyncManagerClass = loadClass("com.cleanroommc.modularui.value.sync.ModularSyncManager");
             Class<?> panelSyncManagerClass = loadClass("com.cleanroommc.modularui.value.sync.PanelSyncManager");
             Object modularSyncManager = instantiateSyncManager(modularSyncManagerClass, true);
@@ -172,31 +218,60 @@ public final class ProjectRuntime implements AutoCloseable {
                 bounds,
                 codeSource,
                 widgets,
+                resolved.scenario(),
                 new PreviewSession.Interaction() {
 
                     @Override
                     public void moveMouse(int screenX, int screenY) {
-                        withContextClassLoader(classLoader, () -> {
-                            invoke(contextClass, context, "updateState",
-                                new Class<?>[] { int.class, int.class, float.class },
-                                layout.toLogicalX(screenX), layout.toLogicalY(screenY), 0F);
-                            invoke(screenClass, screen, "onFrameUpdate", new Class<?>[0]);
+                        withTranslations(translations, () -> {
+                            withContextClassLoader(classLoader, () -> {
+                                invoke(contextClass, context, "updateState",
+                                    new Class<?>[] { int.class, int.class, float.class },
+                                    layout.toLogicalX(screenX), layout.toLogicalY(screenY), 0F);
+                            });
+                            advanceFrame();
+                            return null;
                         });
                     }
 
                     @Override
                     public boolean press(MouseButton button) {
-                        return dispatchMouse(screenClass, screen, button.modularUiCode(), true);
+                        return withTranslations(translations, () -> {
+                            boolean handled = dispatchMouse(screenClass, screen, button.modularUiCode(), true);
+                            advanceUi();
+                            return handled;
+                        });
                     }
 
                     @Override
                     public boolean release(MouseButton button) {
-                        return dispatchMouse(screenClass, screen, button.modularUiCode(), false);
+                        return withTranslations(translations, () -> {
+                            boolean handled = dispatchMouse(screenClass, screen, button.modularUiCode(), false);
+                            advanceUi();
+                            return handled;
+                        });
                     }
 
                     @Override
                     public boolean scroll(ScrollDirection direction, int amount) {
-                        return dispatchScroll(screenClass, screen, scrollDirectionClass, direction, amount);
+                        return withTranslations(translations, () -> {
+                            boolean handled = dispatchScroll(screenClass, screen, scrollDirectionClass, direction, amount);
+                            advanceUi();
+                            return handled;
+                        });
+                    }
+
+                    private void advanceUi() {
+                        withContextClassLoader(
+                            classLoader,
+                            () -> invoke(screenClass, screen, "onUpdate", new Class<?>[0]));
+                        advanceFrame();
+                    }
+
+                    private void advanceFrame() {
+                        withContextClassLoader(
+                            classLoader,
+                            () -> invoke(screenClass, screen, "onFrameUpdate", new Class<?>[0]));
                     }
                 },
                 () -> render(screenClass, screen, panel, bounds, previewScreen, layout, assets, translations));
@@ -206,6 +281,18 @@ public final class ProjectRuntime implements AutoCloseable {
             StatCollector.clearTranslations();
             thread.setContextClassLoader(previous);
         }
+    }
+
+    private ResolvedEntrypoint resolveEntrypoint(Object root, String entrypointName, String scenarioId) {
+        if (root instanceof PreviewCatalog catalog) {
+            PreviewScenario scenario = catalog.requireScenario(scenarioId);
+            return new ResolvedEntrypoint(scenario.createEntrypoint(), scenario.metadata());
+        }
+        if (scenarioId != null) {
+            throw new IllegalArgumentException(
+                "Preview project does not define scenarios, so it cannot select: " + scenarioId);
+        }
+        return new ResolvedEntrypoint((PreviewEntrypoint) root, null);
     }
 
     private PreviewResult render(Class<?> screenClass, Object screen, Object panel, Bounds panelBounds,
@@ -230,6 +317,7 @@ public final class ProjectRuntime implements AutoCloseable {
                     PreviewDrawContext.run(
                         graphics,
                         assets,
+                        layout.screenHeight(),
                         () -> invoke(screenClass, screen, "drawScreen", new Class<?>[0]))));
         } finally {
             StatCollector.clearTranslations();
@@ -495,6 +583,8 @@ public final class ProjectRuntime implements AutoCloseable {
             "net.minecraft.inventory.",
             "net.minecraft.item.",
             "net.minecraft.util.ResourceLocation",
+            "net.minecraft.util.RegistryNamespaced",
+            "net.minecraft.util.ObjectIntIdentityMap",
             "net.minecraft.util.StatCollector",
             "net.minecraft.util.StringTranslate",
             "cpw.mods.fml.common.ICrashCallable",
@@ -537,4 +627,15 @@ public final class ProjectRuntime implements AutoCloseable {
                 .anyMatch(name::startsWith);
         }
     }
+
+    private static <T> T withTranslations(AssetResolver.Translations translations, Supplier<T> action) {
+        StatCollector.installTranslations(translations.values());
+        try {
+            return action.get();
+        } finally {
+            StatCollector.clearTranslations();
+        }
+    }
+
+    private record ResolvedEntrypoint(PreviewEntrypoint entrypoint, PreviewScenario.Metadata scenario) {}
 }
