@@ -30,6 +30,7 @@ import net.minecraft.util.StatCollector;
 
 public final class ProjectRuntime implements AutoCloseable {
 
+    private static final int WHEEL_SETTLE_MILLIS = 500;
     private final URLClassLoader classLoader;
 
     private ProjectRuntime(URLClassLoader classLoader) {
@@ -176,27 +177,42 @@ public final class ProjectRuntime implements AutoCloseable {
 
                     @Override
                     public void moveMouse(int screenX, int screenY) {
-                        withContextClassLoader(classLoader, () -> {
+                        update(() -> {
                             invoke(contextClass, context, "updateState",
                                 new Class<?>[] { int.class, int.class, float.class },
                                 layout.toLogicalX(screenX), layout.toLogicalY(screenY), 0F);
-                            invoke(screenClass, screen, "onFrameUpdate", new Class<?>[0]);
+                            return null;
                         });
                     }
 
                     @Override
                     public boolean press(MouseButton button) {
-                        return dispatchMouse(screenClass, screen, button.modularUiCode(), true);
+                        return update(() -> dispatchMouse(screenClass, screen, button.modularUiCode(), true));
                     }
 
                     @Override
                     public boolean release(MouseButton button) {
-                        return dispatchMouse(screenClass, screen, button.modularUiCode(), false);
+                        return update(() -> dispatchMouse(screenClass, screen, button.modularUiCode(), false));
                     }
 
                     @Override
                     public boolean scroll(ScrollDirection direction, int amount) {
-                        return dispatchScroll(screenClass, screen, scrollDirectionClass, direction, amount);
+                        return update(() -> dispatchScroll(screenClass, screen, scrollDirectionClass, direction, amount));
+                    }
+
+                    private <T> T update(java.util.function.Supplier<T> action) {
+                        StatCollector.installTranslations(translations.values());
+                        ClassLoader previousLoader = Thread.currentThread().getContextClassLoader();
+                        Thread.currentThread().setContextClassLoader(classLoader);
+                        try {
+                            T result = action.get();
+                            invoke(screenClass, screen, "onUpdate", new Class<?>[0]);
+                            invoke(screenClass, screen, "onFrameUpdate", new Class<?>[0]);
+                            return result;
+                        } finally {
+                            Thread.currentThread().setContextClassLoader(previousLoader);
+                            StatCollector.clearTranslations();
+                        }
                     }
                 },
                 () -> render(screenClass, screen, panel, bounds, previewScreen, layout, assets, translations));
@@ -265,10 +281,42 @@ public final class ProjectRuntime implements AutoCloseable {
             } catch (ReflectiveOperationException exception) {
                 throw reflectionFailure("Could not map the mouse scroll direction", exception);
             }
-            handled[0] = (Boolean) invoke(screenClass, screen, "onMouseScroll",
-                new Class<?>[] { directionClass, int.class }, runtimeDirection, amount);
+            Object context = invoke(screenClass, screen, "getContext", new Class<?>[0]);
+            try {
+                Field wheel = loadClass("com.cleanroommc.modularui.screen.viewport.GuiContext")
+                    .getDeclaredField("mouseWheel");
+                wheel.setAccessible(true);
+                wheel.setInt(context, direction == ScrollDirection.DOWN ? -amount : amount);
+                try {
+                    handled[0] = (Boolean) invoke(screenClass, screen, "onMouseScroll",
+                        new Class<?>[] { directionClass, int.class }, runtimeDirection, amount);
+                    advanceAnimations(WHEEL_SETTLE_MILLIS);
+                } finally {
+                    wheel.setInt(context, 0);
+                }
+            } catch (ReflectiveOperationException exception) {
+                throw reflectionFailure("Could not install the mouse wheel event", exception);
+            }
         });
         return handled[0];
+    }
+
+    private void advanceAnimations(int elapsedMillis) {
+        try {
+            Class<?> managerClass = loadClass("com.cleanroommc.modularui.animation.AnimatorManager");
+            Class<?> eventClass = loadClass("net.minecraftforge.client.event.GuiScreenEvent$DrawScreenEvent$Pre");
+            var constructor = managerClass.getDeclaredConstructor();
+            constructor.setAccessible(true);
+            Object manager = constructor.newInstance();
+            // Queue native animations, then settle this finite input without waiting on a game loop.
+            invoke(managerClass, manager, "onDraw", new Class<?>[] { eventClass }, (Object) null);
+            Field lastTime = managerClass.getDeclaredField("lastTime");
+            lastTime.setAccessible(true);
+            lastTime.setLong(null, net.minecraft.client.Minecraft.getSystemTime() - elapsedMillis);
+            invoke(managerClass, manager, "onDraw", new Class<?>[] { eventClass }, (Object) null);
+        } catch (ReflectiveOperationException exception) {
+            throw reflectionFailure("Could not advance native animations", exception);
+        }
     }
 
     private AssetResolver createAssetResolver(PreviewProject project) {
@@ -290,6 +338,7 @@ public final class ProjectRuntime implements AutoCloseable {
 
     private void captureWidget(Class<?> widgetClass, Object widget, String path, Bounds panelBounds, ScreenLayout screen,
         List<WidgetBounds> widgets) {
+        if (widget == null) return;
         Object area = invoke(widgetClass, widget, "getArea", new Class<?>[0]);
         Bounds logical = new Bounds(
             intValue(area, "x"),

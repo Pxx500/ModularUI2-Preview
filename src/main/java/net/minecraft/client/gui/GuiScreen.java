@@ -22,6 +22,10 @@ public class GuiScreen extends Gui implements GuiScreenAccessor {
         return false;
     }
 
+    public static boolean isShiftKeyDown() {
+        return false;
+    }
+
     @Override
     public int getTouchValue() {
         return touchValue;

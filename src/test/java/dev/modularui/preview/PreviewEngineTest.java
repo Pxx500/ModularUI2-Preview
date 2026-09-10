@@ -1,6 +1,7 @@
 package dev.modularui.preview;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -127,6 +128,36 @@ class PreviewEngineTest {
     }
 
     @Test
+    void capturesAHiddenDropdownBeforeItsSelectedChildIsInitialized() throws Exception {
+        Path projectRoot = Files.createDirectories(temporaryDirectory.resolve("hidden-dropdown"));
+        Path source = projectRoot.resolve("src/preview/java/example/HiddenDropdownPreview.java");
+        Files.createDirectories(source.getParent());
+        Files.writeString(source, """
+            package example;
+            import com.cleanroommc.modularui.screen.ModularPanel;
+            import com.cleanroommc.modularui.widgets.menu.DropdownWidget;
+            import com.cleanroommc.modularui.value.StringValue;
+            import dev.modularui.preview.PreviewEntrypoint;
+            public final class HiddenDropdownPreview implements PreviewEntrypoint {
+                public String owner() { return "example"; }
+                public Object createPanel(Context context) {
+                    ModularPanel panel = ModularPanel.defaultPanel("hidden_dropdown", 176, 100);
+                    panel.child(new DropdownWidget<>("selection", String.class)
+                        .value(new StringValue("first")).options("first", "second")
+                        .pos(10, 10).size(80, 20).setEnabledIf(widget -> false));
+                    return panel;
+                }
+            }
+            """);
+        try (PreviewSession session = PreviewEngine.open(projectRoot, "example.HiddenDropdownPreview",
+            new PreviewScreen(800, 600, 1))) {
+            assertEquals("hidden_dropdown", session.panelName());
+            assertTrue(session.render().warnings().isEmpty());
+            assertTrue(session.widgets().stream().anyMatch(widget -> widget.path().equals("0/0")));
+        }
+    }
+
+    @Test
     void opensARealModularUiPanelWithALinkedSyncHandlerAndUsesItsLayoutAndArtifact() throws Exception {
         Path projectRoot = Files.createDirectories(temporaryDirectory.resolve("real-panel-preview"));
         Path modularUiJar = Path.of(System.getProperty("modularui.test.jar"));
@@ -217,6 +248,50 @@ class PreviewEngineTest {
     }
 
     @Test
+    void inputCallbacksUseTranslationsAndRefreshConditionalWidgets() throws Exception {
+        Path projectRoot = Files.createDirectories(temporaryDirectory.resolve("translated-input"));
+        Path source = projectRoot.resolve("src/preview/java/example/TranslatedInputPreview.java");
+        Path language = projectRoot.resolve("src/preview/resources/assets/example/lang/en_US.lang");
+        Files.createDirectories(source.getParent());
+        Files.createDirectories(language.getParent());
+        Files.writeString(language, "example.callback=Chosen %s\n");
+        Files.writeString(source, """
+            package example;
+            import com.cleanroommc.modularui.screen.ModularPanel;
+            import com.cleanroommc.modularui.widgets.ButtonWidget;
+            import com.cleanroommc.modularui.widget.Widget;
+            import net.minecraft.client.gui.Gui;
+            import net.minecraft.util.StatCollector;
+            import dev.modularui.preview.PreviewEntrypoint;
+            public final class TranslatedInputPreview implements PreviewEntrypoint {
+                public String owner() { return "example"; }
+                public Object createPanel(Context context) {
+                    boolean[] selected = {false};
+                    ModularPanel panel = ModularPanel.defaultPanel("translated_input", 176, 100);
+                    panel.child(new ButtonWidget<>().pos(10, 10).size(40, 20).onMousePressed(button -> {
+                        selected[0] = "Chosen value".equals(StatCollector.translateToLocalFormatted("example.callback", "value"));
+                        return true;
+                    }));
+                    panel.child(new Widget<>().pos(60, 10).size(40, 20)
+                        .background((context2,x,y,w,h,theme) -> Gui.drawRect(x,y,x+w,y+h,0xFF55FF55))
+                        .setEnabledIf(widget -> selected[0]));
+                    return panel;
+                }
+            }
+            """);
+        try (PreviewSession session = PreviewEngine.open(projectRoot, "example.TranslatedInputPreview",
+            new PreviewScreen(800, 600, 1))) {
+            WidgetBounds button = session.widgets().stream().filter(widget -> widget.path().equals("0/0"))
+                .findFirst().orElseThrow();
+            WidgetBounds conditional = session.widgets().stream().filter(widget -> widget.path().equals("0/1"))
+                .findFirst().orElseThrow();
+            session.moveMouse(button.screen().x() + 5, button.screen().y() + 5);
+            assertTrue(session.click(MouseButton.LEFT));
+            assertTrue(containsColor(session.render().image(), conditional.screen(), 0xFF55FF55));
+        }
+    }
+
+    @Test
     void routesLocalMouseClicksThroughTheRealModularUiScreen() throws Exception {
         Path projectRoot = Files.createDirectories(temporaryDirectory.resolve("interactive-panel-preview"));
         writeInteractivePanelEntrypoint(projectRoot);
@@ -271,6 +346,49 @@ class PreviewEngineTest {
             .contains("\"ButtonWidget\""));
         assertTrue(Files.readString(capture.resolve("actions.json"))
             .contains("\"handled\": true"));
+    }
+
+    @Test
+    void scrollsRealWidgetContentWithNoKeyboardModifiers() throws Exception {
+        Path projectRoot = Files.createDirectories(temporaryDirectory.resolve("scroll-content"));
+        Path source = projectRoot.resolve("src/preview/java/example/ScrollContentPreview.java");
+        Files.createDirectories(source.getParent());
+        Files.writeString(source, """
+            package example;
+            import com.cleanroommc.modularui.screen.ModularPanel;
+            import com.cleanroommc.modularui.widget.ParentWidget;
+            import com.cleanroommc.modularui.widget.ScrollWidget;
+            import com.cleanroommc.modularui.widget.scroll.VerticalScrollData;
+            import com.cleanroommc.modularui.widget.Widget;
+            import net.minecraft.client.gui.Gui;
+            import dev.modularui.preview.PreviewEntrypoint;
+            public final class ScrollContentPreview implements PreviewEntrypoint {
+                public String owner() { return "example"; }
+                public Object createPanel(Context context) {
+                    ModularPanel panel = ModularPanel.defaultPanel("scroll_content", 176, 100);
+                    ParentWidget<?> content = new ParentWidget<>().width(80).height(120);
+                    content.child(new Widget<>().pos(0,0).size(80,60)
+                        .background((c,x,y,w,h,t) -> Gui.drawRect(x,y,x+w,y+h,0xFFFF5555)));
+                    content.child(new Widget<>().pos(0,60).size(80,60)
+                        .background((c,x,y,w,h,t) -> Gui.drawRect(x,y,x+w,y+h,0xFF55FF55)));
+                    VerticalScrollData data = new VerticalScrollData();
+                    data.setScrollSize(120);
+                    panel.child(new ScrollWidget<>(data).pos(10,10).size(80,60).child(content));
+                    return panel;
+                }
+            }
+            """);
+        try (PreviewSession session = PreviewEngine.open(projectRoot, "example.ScrollContentPreview",
+            new PreviewScreen(800, 600, 1))) {
+            WidgetBounds scroll = session.widgets().stream().filter(widget -> widget.path().equals("0/0"))
+                .findFirst().orElseThrow();
+            session.moveMouse(scroll.screen().x() + 10, scroll.screen().y() + 10);
+            assertTrue(containsColor(session.render().image(), scroll.screen(), 0xFFFF5555));
+            assertTrue(session.scroll(ScrollDirection.DOWN, 4));
+            assertTrue(containsColor(session.render().image(), scroll.screen(), 0xFF55FF55));
+            assertTrue(session.scroll(ScrollDirection.UP, 4));
+            assertFalse(containsColor(session.render().image(), scroll.screen(), 0xFF55FF55));
+        }
     }
 
     @Test
