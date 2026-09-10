@@ -23,5 +23,19 @@ record PreviewViewport(Bounds windowBounds, int framebufferWidth, int framebuffe
         return new Point(x, y);
     }
 
+    static PreviewViewport actualSize(int windowWidth, int windowHeight, int framebufferWidth, int framebufferHeight) {
+        if (windowWidth <= 0 || windowHeight <= 0 || framebufferWidth <= 0 || framebufferHeight <= 0) {
+            throw new IllegalArgumentException("Viewport dimensions must be positive");
+        }
+        return new PreviewViewport(
+            new Bounds(
+                Math.max(0, (windowWidth - framebufferWidth) / 2),
+                Math.max(0, (windowHeight - framebufferHeight) / 2),
+                framebufferWidth,
+                framebufferHeight),
+            framebufferWidth,
+            framebufferHeight);
+    }
+
     record Point(int x, int y) {}
 }

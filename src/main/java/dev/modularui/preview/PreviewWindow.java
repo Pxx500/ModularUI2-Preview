@@ -3,9 +3,11 @@ package dev.modularui.preview;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Dimension;
+import java.awt.FlowLayout;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
+import java.awt.Rectangle;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseMotionAdapter;
@@ -16,16 +18,25 @@ import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Path;
+import java.nio.file.Files;
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.BorderFactory;
+import javax.imageio.ImageIO;
+import javax.swing.ButtonGroup;
+import javax.swing.JButton;
 import javax.swing.JComponent;
+import javax.swing.JFileChooser;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JToggleButton;
+import javax.swing.Scrollable;
 import javax.swing.SwingUtilities;
 import javax.swing.WindowConstants;
+import javax.swing.filechooser.FileNameExtensionFilter;
 
 /** Interactive desktop host for local preview sessions. */
 public final class PreviewWindow {
@@ -70,12 +81,15 @@ public final class PreviewWindow {
         PreviewInputQueue inputs, AtomicReference<Throwable> failure) {
         WindowHandle window = null;
         try (PreviewSession session = PreviewEngine.open(projectRoot, className, scenarioId, screen)) {
-            window = createWindow(className, session.render().image(), inputs);
+            PreviewResult initial = session.render();
+            String selectedScenario = session.scenario().map(PreviewScenario.Metadata::id).orElse(scenarioId);
+            window = createWindow(className, selectedScenario, initial.image(), initial.layout().guiScale(), inputs);
+            window.setImage(initial);
             while (true) {
                 PreviewInput input = inputs.take();
                 if (input == PreviewInput.Stop.INSTANCE) return;
                 apply(session, input);
-                window.setImage(session.render().image());
+                window.setImage(session.render());
             }
         } catch (Throwable throwable) {
             failure.set(throwable);
@@ -90,7 +104,7 @@ public final class PreviewWindow {
         WindowHandle window = null;
         PreviewGeneration active = null;
         try {
-            window = createWindow(className, placeholder(configuration), inputs);
+            window = createWindow(className, scenarioId, placeholder(configuration), 0, inputs);
             PreviewInputSnapshot initial = capture(projectRoot, configuration, window);
             PreviewWatchState watchState = new PreviewWatchState(initial, WATCH_DEBOUNCE);
             window.showBuilding("Building initial preview...");
@@ -136,7 +150,8 @@ public final class PreviewWindow {
                 className,
                 candidate.session(),
                 candidate.initialResult());
-            window.installGeneration(candidate.initialResult().image());
+            String displayName = candidate.session().scenario().map(PreviewScenario.Metadata::id).orElse(className);
+            window.installGeneration(candidate.initialResult(), displayName);
             close(active, window);
             return candidate;
         } catch (Throwable rebuildFailure) {
@@ -158,7 +173,7 @@ public final class PreviewWindow {
     private void interact(PreviewGeneration active, PreviewInput input, WindowHandle window) {
         try {
             apply(active.session(), input);
-            window.setImage(active.session().render().image());
+            window.setImage(active.session().render());
         } catch (RuntimeException | LinkageError interactionFailure) {
             window.showError(interactionFailure);
         }
@@ -176,20 +191,43 @@ public final class PreviewWindow {
         }
     }
 
-    private WindowHandle createWindow(String className, BufferedImage image, PreviewInputQueue inputs)
+    private WindowHandle createWindow(String className, String scenarioId, BufferedImage image, int guiScale,
+        PreviewInputQueue inputs)
         throws InterruptedException, InvocationTargetException {
         AtomicReference<WindowHandle> result = new AtomicReference<>();
         SwingUtilities.invokeAndWait(() -> {
             PreviewCanvas canvas = new PreviewCanvas(image, inputs);
+            JScrollPane scrollPane = new JScrollPane(canvas);
+            scrollPane.setBorder(BorderFactory.createEmptyBorder());
+            scrollPane.setPreferredSize(new Dimension(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT));
+            // Wheel events over the GUI belong to ModularUI. Use the scrollbars to pan at 100%.
+            scrollPane.setWheelScrollingEnabled(false);
+            JLabel details = new JLabel();
+            JButton save = new JButton("Save PNG");
+            save.setEnabled(guiScale > 0);
+            save.addActionListener(event -> canvas.saveImage());
+            JToggleButton fit = new JToggleButton("Fit", true);
+            JToggleButton actualSize = new JToggleButton("100%");
+            ButtonGroup viewingMode = new ButtonGroup();
+            viewingMode.add(fit);
+            viewingMode.add(actualSize);
+            fit.addActionListener(event -> canvas.setFit(true));
+            actualSize.addActionListener(event -> canvas.setFit(false));
+            JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT));
+            toolbar.add(fit);
+            toolbar.add(actualSize);
+            toolbar.add(save);
+            toolbar.add(details);
             JLabel status = new JLabel();
             status.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
             status.setOpaque(true);
             status.setVisible(false);
             JPanel content = new JPanel(new BorderLayout());
-            content.add(canvas, BorderLayout.CENTER);
+            content.add(toolbar, BorderLayout.NORTH);
+            content.add(scrollPane, BorderLayout.CENTER);
             content.add(status, BorderLayout.SOUTH);
 
-            JFrame frame = new JFrame("ModularUI2 Preview - " + className);
+            JFrame frame = new JFrame("ModularUI2 Preview - " + (scenarioId == null ? className : scenarioId));
             frame.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
             frame.addWindowListener(new WindowAdapter() {
 
@@ -202,7 +240,9 @@ public final class PreviewWindow {
             frame.pack();
             frame.setLocationRelativeTo(null);
             frame.setVisible(true);
-            result.set(new WindowHandle(frame, canvas, status));
+            WindowHandle handle = new WindowHandle(frame, canvas, status, details, save);
+            handle.updateDetails(image, guiScale);
+            result.set(handle);
         });
         return result.get();
     }
@@ -257,19 +297,41 @@ public final class PreviewWindow {
         return message == null || message.isBlank() ? failure.toString() : message;
     }
 
-    private record WindowHandle(JFrame frame, PreviewCanvas canvas, JLabel status) {
+    private record WindowHandle(JFrame frame, PreviewCanvas canvas, JLabel status, JLabel details, JButton save) {
 
-        private void setImage(BufferedImage image) {
-            SwingUtilities.invokeLater(() -> canvas.setImage(image));
+        private void setImage(PreviewResult result) {
+            SwingUtilities.invokeLater(() -> {
+                canvas.setImage(result.image());
+                updateDetails(result.image(), result.layout().guiScale());
+                showWarnings(result);
+            });
         }
 
-        private void installGeneration(BufferedImage image) throws InterruptedException, InvocationTargetException {
+        private void installGeneration(PreviewResult result, String displayName)
+            throws InterruptedException, InvocationTargetException {
             SwingUtilities.invokeAndWait(() -> {
-                canvas.installGeneration(image);
+                canvas.installGeneration(result.image());
+                updateDetails(result.image(), result.layout().guiScale());
+                frame.setTitle("ModularUI2 Preview - " + displayName);
                 status.setText("");
                 status.setToolTipText(null);
                 status.setVisible(false);
+                showWarnings(result);
             });
+        }
+
+        private void showWarnings(PreviewResult result) {
+            if (!result.warnings().isEmpty()) {
+                setStatus("Limited preview - " + String.join(" | ", result.warnings()),
+                    new Color(0xFFF3CD), new Color(0x664D03));
+                status.setToolTipText(status.getText());
+            }
+        }
+
+        private void updateDetails(BufferedImage image, int guiScale) {
+            details.setText(image.getWidth() + " x " + image.getHeight()
+                + (guiScale > 0 ? "  |  GUI scale " + guiScale : ""));
+            save.setEnabled(guiScale > 0);
         }
 
         private void showBuilding(String text) {
@@ -298,15 +360,15 @@ public final class PreviewWindow {
         }
     }
 
-    private static final class PreviewCanvas extends JComponent {
+    private static final class PreviewCanvas extends JComponent implements Scrollable {
 
         private final PreviewInputQueue inputs;
         private volatile BufferedImage image;
+        private boolean fit = true;
 
         private PreviewCanvas(BufferedImage image, PreviewInputQueue inputs) {
             this.image = image;
             this.inputs = inputs;
-            setPreferredSize(new Dimension(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT));
             addMouseMotionListener(new MouseMotionAdapter() {
 
                 @Override
@@ -341,8 +403,42 @@ public final class PreviewWindow {
         }
 
         private void setImage(BufferedImage image) {
+            boolean dimensionsChanged = this.image.getWidth() != image.getWidth()
+                || this.image.getHeight() != image.getHeight();
             this.image = image;
+            if (dimensionsChanged) revalidate();
             repaint();
+        }
+
+        private void setFit(boolean fit) {
+            this.fit = fit;
+            revalidate();
+            repaint();
+        }
+
+        private void saveImage() {
+            // Preserve the frame shown when Save was clicked, even if watch rebuilds while the chooser is open.
+            BufferedImage displayed = image;
+            JFileChooser chooser = new JFileChooser();
+            chooser.setDialogTitle("Save current preview");
+            chooser.setFileFilter(new FileNameExtensionFilter("PNG image", "png"));
+            chooser.setAcceptAllFileFilterUsed(false);
+            chooser.setSelectedFile(new java.io.File("preview.png"));
+            if (chooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
+            Path destination = chooser.getSelectedFile().toPath();
+            if (!destination.getFileName().toString().toLowerCase(java.util.Locale.ROOT).endsWith(".png")) {
+                destination = destination.resolveSibling(destination.getFileName() + ".png");
+            }
+            if (Files.exists(destination) && JOptionPane.showConfirmDialog(
+                this, "Replace " + destination.getFileName() + "?", "Replace image",
+                JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
+            try {
+                if (!ImageIO.write(displayed, "png", destination.toFile())) {
+                    throw new IOException("PNG encoder is unavailable");
+                }
+            } catch (IOException failure) {
+                JOptionPane.showMessageDialog(this, message(failure), "Could not save PNG", JOptionPane.ERROR_MESSAGE);
+            }
         }
 
         private void installGeneration(BufferedImage image) {
@@ -372,15 +468,46 @@ public final class PreviewWindow {
 
         private PreviewViewport viewport() {
             BufferedImage current = image;
-            return PreviewViewport.fit(getWidth(), getHeight(), current.getWidth(), current.getHeight());
+            return fit
+                ? PreviewViewport.fit(getWidth(), getHeight(), current.getWidth(), current.getHeight())
+                : PreviewViewport.actualSize(getWidth(), getHeight(), current.getWidth(), current.getHeight());
+        }
+
+        @Override
+        public Dimension getPreferredSize() {
+            return new Dimension(image.getWidth(), image.getHeight());
+        }
+
+        @Override
+        public Dimension getPreferredScrollableViewportSize() {
+            return new Dimension(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT);
+        }
+
+        @Override
+        public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return 16;
+        }
+
+        @Override
+        public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return orientation == javax.swing.SwingConstants.HORIZONTAL ? visibleRect.width : visibleRect.height;
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportWidth() {
+            return fit || getParent() != null && getParent().getWidth() >= image.getWidth();
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportHeight() {
+            return fit || getParent() != null && getParent().getHeight() >= image.getHeight();
         }
 
         @Override
         protected void paintComponent(Graphics graphics) {
             super.paintComponent(graphics);
             BufferedImage current = image;
-            PreviewViewport viewport = PreviewViewport.fit(
-                getWidth(), getHeight(), current.getWidth(), current.getHeight());
+            PreviewViewport viewport = viewport();
             Graphics2D graphics2D = (Graphics2D) graphics.create();
             graphics2D.setColor(Color.BLACK);
             graphics2D.fillRect(0, 0, getWidth(), getHeight());
