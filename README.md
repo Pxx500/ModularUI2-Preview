@@ -268,6 +268,10 @@ preview.bat verify project-directory --failed
 
 `verify` runs default scenarios in isolated workers. `--full` also runs non-default states and their action scripts. `--failed` reruns failures from the previous report. Use `list` to discover IDs and `doctor` to check the production classpath, assets, and catalog before rendering.
 
+Every scripted state is checked, including the pressed frame inside `click`. Warnings fail verification and retain the affected frame and its diagnostics. Completed actions remain in `actions.json` if a later action fails. `--failed` also reruns action scripts.
+
+Document a reproducible limitation with `.knownFailure("interaction_error", "exact cause message", "reason")`. The scenario still runs, including its actions even in a fast check. Only the matching category and exact exception message count as `known_failure`. A different error remains a failure. An unexpected success reports `unexpected_pass`, so remove the stale expectation. Reports count passes, failures, and known failures separately. The command returns a nonzero exit code until every selected scenario passes.
+
 ## Additional project inputs
 
 - `libs/` contains ordinary project runtime JARs.
@@ -286,6 +290,8 @@ preview.bat open project-directory
 ```
 
 Mouse hover, left and right button presses, releases, clicks, and wheel scrolling are sent to the real ModularUI2 screen. The panel stays alive until the window is closed, so local widget callbacks can change the next rendered frame. This mode does not simulate a Minecraft server or network-backed behavior.
+
+Use **Fit** to see the entire framebuffer or **100%** to inspect it without fit scaling. In 100% mode, use the scrollbars to pan. Mouse wheel events still go to the GUI. Operating-system display scaling can additionally scale the window. **Save PNG** exports the frame displayed when you click Save, at its original framebuffer resolution. Window titles identify the selected catalog scenario. The toolbar shows framebuffer dimensions and GUI scale.
 
 For continuous layout work, watch the project instead:
 
@@ -315,6 +321,18 @@ preview.bat render project-directory --actions actions.txt
 ```
 
 Available commands are `move x y`, `move-widget path`, `press left|right`, `release left|right`, `click left|right`, `scroll up|down [amount]`, and `capture name`. Each capture is written below `output/<PreviewClass>/captures/<name>/` as `preview.png`, `bounds.json`, and `actions.json`. Invalid commands and missing widget paths report the source line.
+
+Use `assert-enabled path` and `assert-disabled path` to check the effect of a local interaction. These check ModularUI's widget-enabled state, including disabled ancestors, not server state or whether a button is drawn grey. Both require an existing widget path from `bounds.json`. A failed assertion reports the script line and stops the run.
+
+```text
+assert-enabled 0/0
+move-widget 0/1
+click left
+assert-disabled 0/0
+capture after-click
+```
+
+Use paths from your own GUI. The example above describes a button that disables another widget.
 
 ## Command reference
 
