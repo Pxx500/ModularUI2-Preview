@@ -25,6 +25,7 @@ public final class PreviewSession implements AutoCloseable {
     private final Interaction interaction;
     private final Supplier<PreviewResult> renderer;
     private List<WidgetBounds> widgets;
+    private PreviewResult lastRender;
 
     public PreviewSession(AutoCloseable runtime, AutoCloseable lifecycle, String entrypointClassName,
         Path entrypointCodeSource, String previewedClassName, Path previewedCodeSource, String panelName,
@@ -118,7 +119,54 @@ public final class PreviewSession implements AutoCloseable {
         ensureOwnerThread();
         PreviewResult result = renderer.get();
         widgets = result.widgets();
+        lastRender = result;
         return result;
+    }
+
+    PreviewResult lastRender() {
+        return lastRender;
+    }
+
+    void validateRender(PreviewResult result) {
+        if (scenario != null && !scenario.previewedClass().equals(previewedClassName)) {
+            throw new RenderFailure("missing_class", "Expected production class " + scenario.previewedClass()
+                + " but loaded " + previewedClassName);
+        }
+        if (!result.warnings().isEmpty()) {
+            throw new RenderFailure("unexpected_warning", "Render warnings: " + result.warnings());
+        }
+        if (result.widgets().isEmpty()) {
+            throw new RenderFailure("incomplete_bounds", "Render did not report any widget bounds");
+        }
+        if (scenario == null) return;
+        List<String> missing = scenario.expectedAssets().stream()
+            .filter(expected -> result.assetSources().stream().noneMatch(actual -> matchesAsset(expected, actual)))
+            .toList();
+        if (!missing.isEmpty()) {
+            throw new RenderFailure("missing_asset", "Expected assets were not rendered: " + missing);
+        }
+    }
+
+    private static boolean matchesAsset(String expected, String actual) {
+        String normalized = expected.replace('\\', '/');
+        int namespace = normalized.indexOf(':');
+        if (namespace > 0) {
+            normalized = "assets/" + normalized.substring(0, namespace) + "/" + normalized.substring(namespace + 1);
+        }
+        return actual.replace('\\', '/').endsWith(normalized);
+    }
+
+    static final class RenderFailure extends IllegalStateException {
+        private final String category;
+
+        RenderFailure(String category, String message) {
+            super(message);
+            this.category = category;
+        }
+
+        String category() {
+            return category;
+        }
     }
 
     @Override

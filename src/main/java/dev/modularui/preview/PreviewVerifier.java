@@ -64,7 +64,7 @@ final class PreviewVerifier {
                     output.resolve(scenario.id()),
                     configuration,
                     compiledOutput,
-                    options.full(),
+                    options.full() || options.failedOnly(),
                     timeout(scenario, options))))
                 .toList();
             for (Future<PreviewWorkerResult> future : futures) {
@@ -150,7 +150,8 @@ final class PreviewVerifier {
                 0);
         }
         if (result == null || !scenario.id().equals(result.scenarioId())
-            || !(result.status().equals("passed") || result.status().equals("failed"))) {
+            || !("passed".equals(result.status()) || "failed".equals(result.status())
+                || "known_failure".equals(result.status()))) {
             return syntheticFailure(
                 projectRoot,
                 scenario.id(),
@@ -278,9 +279,10 @@ final class PreviewVerifier {
         List<PreviewWorkerResult> results) {
         List<PreviewWorkerResult> reportResults = results.stream().map(this::withReportArtifactPaths).toList();
         int passed = (int) reportResults.stream().filter(PreviewWorkerResult::passed).count();
+        int known = (int) reportResults.stream().filter(result -> result.status().equals("known_failure")).count();
         return new VerificationSummary(
             1,
-            reportResults.stream().allMatch(PreviewWorkerResult::passed) ? "passed" : "failed",
+            passed == reportResults.size() ? "passed" : passed + known == reportResults.size() ? "known_failure" : "failed",
             projectRoot.toAbsolutePath().normalize().toString(),
             entrypoint,
             PreviewEnvironment.version(),
@@ -289,7 +291,8 @@ final class PreviewVerifier {
             options.full() ? "full" : options.failedOnly() ? "failed" : "fast",
             reportResults.size(),
             passed,
-            reportResults.size() - passed,
+            reportResults.size() - passed - known,
+            known,
             reportResults);
     }
 
@@ -323,9 +326,10 @@ final class PreviewVerifier {
         StringBuilder text = new StringBuilder();
         text.append("preview verification: ")
             .append(summary.passed()).append(" passed, ")
-            .append(summary.failed()).append(" failed\n");
+            .append(summary.failed()).append(" failed, ")
+            .append(summary.knownFailures()).append(" known failures\n");
         for (PreviewWorkerResult result : summary.results()) {
-            text.append(result.passed() ? "PASS " : "FAIL ")
+            text.append(result.passed() ? "PASS " : result.status().equals("known_failure") ? "KNOWN " : "FAIL ")
                 .append(result.scenarioId())
                 .append(" (").append(result.durationMillis()).append(" ms)");
             if (!result.passed()) text.append(" [").append(result.category()).append("] ").append(result.message());
@@ -415,6 +419,7 @@ final class PreviewVerifier {
         int selected,
         int passed,
         int failed,
+        int knownFailures,
         List<PreviewWorkerResult> results) {
 
         VerificationSummary {
@@ -422,7 +427,7 @@ final class PreviewVerifier {
         }
 
         boolean allPassed() {
-            return failed == 0;
+            return passed == selected;
         }
     }
 }

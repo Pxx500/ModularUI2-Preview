@@ -89,6 +89,81 @@ class VerificationCliTest {
         assertTrue(Files.isRegularFile(output.resolve("catalog/diagnostic.json")));
     }
 
+    // Bug regression: a warning raised only while pressed must not turn into a successful catalog check.
+    @Test
+    void verifiesPressedFramesAndPreservesTheirDiagnosticEvidence() throws Exception {
+        Path project = temporaryDirectory.resolve("warning-preview");
+        Path output = temporaryDirectory.resolve("warning-output");
+        writeWarningProject(project, "", "GL11.glBlendFunc(1, 1);");
+        RunResult result = run("verify", project.toString(), "--full", "--output", output.toString());
+        assertEquals(1, result.exitCode());
+        var diagnostic = com.google.gson.JsonParser.parseString(
+            Files.readString(output.resolve("warning/default/diagnostic.json"))).getAsJsonObject();
+        assertEquals("unexpected_warning", diagnostic.get("category").getAsString(), diagnostic.toString());
+        assertEquals("example.WarningCatalog", diagnostic.get("previewedClass").getAsString());
+        assertTrue(diagnostic.getAsJsonArray("warnings").toString().contains("unsupported.blend-function"));
+        assertTrue(Files.readString(output.resolve("warning/default/actions.json")).contains("move-widget"));
+    }
+
+    @Test
+    void distinguishesKnownFailuresFromDifferentFailuresAndUnexpectedPasses() throws Exception {
+        Path project = temporaryDirectory.resolve("known-preview");
+        Path output = temporaryDirectory.resolve("known-output");
+        String expectation = ".knownFailure(\"interaction_error\", \"missing fixture texture\", \"asset not supplied\")";
+        writeWarningProject(project, expectation, "throw new IllegalStateException(\"missing fixture texture\");");
+        RunResult known = run("verify", project.toString(), "--output", output.toString());
+        assertEquals(1, known.exitCode());
+        var summary = com.google.gson.JsonParser.parseString(Files.readString(output.resolve("summary.json")))
+            .getAsJsonObject();
+        assertEquals(1, summary.get("knownFailures").getAsInt());
+        assertEquals(0, summary.get("passed").getAsInt());
+        assertEquals(0, summary.get("failed").getAsInt());
+
+        writeWarningProject(project, expectation, "throw new IllegalStateException(\"different failure\");");
+        assertEquals(1, run("verify", project.toString(), "--output", output.toString()).exitCode());
+        var different = com.google.gson.JsonParser.parseString(Files.readString(output.resolve("summary.json")))
+            .getAsJsonObject();
+        assertEquals(0, different.get("knownFailures").getAsInt());
+        assertEquals(1, different.get("failed").getAsInt());
+
+        writeWarningProject(project, expectation, "");
+        assertEquals(1, run("verify", project.toString(), "--output", output.toString()).exitCode());
+        assertTrue(Files.readString(output.resolve("summary.json")).contains("unexpected_pass"));
+    }
+
+    private static void writeWarningProject(Path project, String expectation, String pressedDrawing) throws Exception {
+        Path source = project.resolve("src/preview/java/example/WarningCatalog.java");
+        Files.createDirectories(source.getParent());
+        Files.writeString(project.resolve("preview.properties"), "preview.entrypoint=example.WarningCatalog\n"
+            + "screen.width=800\nscreen.height=600\ngui.scale=1\nscreen.background=#101820\n");
+        Files.writeString(project.resolve("actions.txt"), "move-widget 0/0\nclick left\n");
+        Files.writeString(source, """
+            package example;
+            import com.cleanroommc.modularui.screen.ModularPanel;
+            import com.cleanroommc.modularui.widgets.ButtonWidget;
+            import com.cleanroommc.modularui.api.drawable.IDrawable;
+            import dev.modularui.preview.*;
+            import java.util.List;
+            import org.lwjgl.opengl.GL11;
+            public class WarningCatalog implements PreviewCatalog, PreviewEntrypoint {
+                private boolean pressed;
+                public List<PreviewScenario> scenarios() {
+                    return List.of(PreviewScenario.define("warning/default", "pressed warning", "warning",
+                        WarningCatalog.class, WarningCatalog::new).tags("default").actions("actions.txt")%s);
+                }
+                public Object createPanel(Context context) {
+                    return ModularPanel.defaultPanel("warning", 176, 100)
+                        .child(new ButtonWidget<>().pos(20, 20).size(40, 20)
+                            .background((IDrawable) (gui,x,y,w,h,theme) -> {
+                                if (pressed) { %s }
+                            })
+                            .onMousePressed(button -> { pressed = true; return true; })
+                            .onMouseReleased(button -> { pressed = false; return true; }));
+                }
+            }
+            """.formatted(expectation, pressedDrawing));
+    }
+
     private static RunResult run(String... arguments) {
         ByteArrayOutputStream outputBytes = new ByteArrayOutputStream();
         ByteArrayOutputStream errorBytes = new ByteArrayOutputStream();

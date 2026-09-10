@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.nio.FloatBuffer;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Deque;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -49,6 +50,12 @@ public final class PreviewDrawContext {
 
     public static List<String> run(
         Graphics2D graphics, AssetResolver assets, int framebufferHeight, Runnable drawable) {
+        return run(graphics, assets, framebufferHeight, new ArrayList<>(), drawable);
+    }
+
+    public static List<String> run(
+        Graphics2D graphics, AssetResolver assets, int framebufferHeight, Collection<String> warnings,
+        Runnable drawable) {
         State previous = CURRENT.get();
         State state = new State(graphics, assets, framebufferHeight);
         CURRENT.set(state);
@@ -58,7 +65,13 @@ public final class PreviewDrawContext {
         } finally {
             if (previous == null) CURRENT.remove();
             else CURRENT.set(previous);
+            warnings.addAll(state.warnings);
         }
+    }
+
+    public static void unsupported(String warning) {
+        State state = CURRENT.get();
+        if (state != null) state.warnings.add(warning);
     }
 
     public static void drawRect(int left, int top, int right, int bottom, int color) {
@@ -498,6 +511,7 @@ public final class PreviewDrawContext {
         private final Deque<AffineTransform> matrices = new ArrayDeque<>();
         private final Deque<Area> stencilClips = new ArrayDeque<>();
         private final Set<String> assetSources = new LinkedHashSet<>();
+        private final Set<String> warnings = new LinkedHashSet<>();
         private AffineTransform matrix = new AffineTransform();
         private Color color = Color.WHITE;
         private BufferedImage texture;

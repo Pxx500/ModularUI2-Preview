@@ -36,26 +36,34 @@ public final class PreviewWorkerMain {
         Path compiledOutput = Path.of(arguments[5]).toAbsolutePath().normalize();
         boolean runActions = Boolean.parseBoolean(arguments[6]);
         long started = System.nanoTime();
+        PreviewSession observedSession = null;
         try {
             Files.createDirectories(output);
             PreviewScreen screen = PreviewScreen.load(configuration);
             try (PreviewSession session = PreviewEngine.openPrepared(
                 projectRoot, entrypoint, scenarioId, screen, compiledOutput)) {
+                observedSession = session;
                 PreviewResult rendered = session.render();
                 new UiPreviewRunner().writeArtifacts(output, entrypoint, session, rendered);
                 PreviewScenario.Metadata scenario = session.scenario()
                     .orElseThrow(() -> new WorkerFailure("render_error", "Worker did not load scenario metadata"));
-                validate(session, rendered, scenario);
-                if (runActions && scenario.actions() != null) {
+                session.validateRender(rendered);
+                if ((runActions || scenario.knownFailure() != null) && scenario.actions() != null) {
                     Path actions = projectRoot.resolve(scenario.actions()).normalize();
                     if (!actions.startsWith(projectRoot) || !Files.isRegularFile(actions)) {
                         throw new WorkerFailure("interaction_error", "Scenario action script is missing: " + actions);
                     }
                     try {
                         new PreviewActionRunner().run(session, entrypoint, actions, output);
+                    } catch (PreviewSession.RenderFailure exception) {
+                        throw exception;
                     } catch (IOException | RuntimeException exception) {
                         throw new WorkerFailure("interaction_error", message(exception), exception);
                     }
+                }
+                if (scenario.knownFailure() != null) {
+                    throw new WorkerFailure("unexpected_pass", "Known failure no longer reproduced: "
+                        + scenario.knownFailure().reason());
                 }
                 PreviewWorkerResult result = result(
                     projectRoot,
@@ -65,7 +73,7 @@ public final class PreviewWorkerMain {
                     "rendered successfully",
                     started,
                     session,
-                    rendered,
+                    session.lastRender(),
                     output);
                 writeDiagnostic(output, result);
                 return 0;
@@ -74,16 +82,20 @@ public final class PreviewWorkerMain {
             failure.printStackTrace(System.err);
             String category = failure instanceof WorkerFailure workerFailure
                 ? workerFailure.category()
+                : failure instanceof PreviewSession.RenderFailure renderFailure ? renderFailure.category()
                 : category(failure);
+            PreviewScenario.KnownFailure expected = observedSession == null ? null
+                : observedSession.scenario().map(PreviewScenario.Metadata::knownFailure).orElse(null);
+            boolean known = expected != null && expected.matches(category, failure);
             PreviewWorkerResult result = result(
                 projectRoot,
                 scenarioId,
-                "failed",
+                known ? "known_failure" : "failed",
                 category,
-                message(failure),
+                known ? expected.reason() + ": " + expected.causeMessage() : message(failure),
                 started,
-                null,
-                null,
+                observedSession,
+                observedSession == null ? null : observedSession.lastRender(),
                 output);
             try {
                 writeDiagnostic(output, result);
@@ -92,35 +104,6 @@ public final class PreviewWorkerMain {
             }
             return 1;
         }
-    }
-
-    private static void validate(PreviewSession session, PreviewResult result, PreviewScenario.Metadata scenario) {
-        if (!scenario.previewedClass().equals(session.previewedClassName())) {
-            throw new WorkerFailure("missing_class", "Expected production class " + scenario.previewedClass()
-                + " but loaded " + session.previewedClassName());
-        }
-        if (!result.warnings().isEmpty()) {
-            throw new WorkerFailure("unexpected_warning", "Render emitted " + result.warnings().size() + " warning(s)");
-        }
-        if (result.widgets().isEmpty()) {
-            throw new WorkerFailure("incomplete_bounds", "Render did not report any widget bounds");
-        }
-        List<String> missingAssets = scenario.expectedAssets().stream()
-            .filter(expected -> result.assetSources().stream().noneMatch(actual -> matchesAsset(expected, actual)))
-            .toList();
-        if (!missingAssets.isEmpty()) {
-            throw new WorkerFailure("missing_asset", "Expected assets were not rendered: " + missingAssets);
-        }
-    }
-
-    private static boolean matchesAsset(String expected, String actual) {
-        String normalizedExpected = expected.replace('\\', '/');
-        int namespace = normalizedExpected.indexOf(':');
-        if (namespace > 0) {
-            normalizedExpected = "assets/" + normalizedExpected.substring(0, namespace) + "/"
-                + normalizedExpected.substring(namespace + 1);
-        }
-        return actual.replace('\\', '/').endsWith(normalizedExpected);
     }
 
     private static PreviewWorkerResult result(Path projectRoot, String scenarioId, String status, String category,

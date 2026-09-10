@@ -265,7 +265,9 @@ public final class UiPreviewRunner {
             json.append(", \"visible\": ")
                 .append(widget.visible());
             json.append(", \"clipped\": ")
-                .append(widget.clipped())
+                .append(widget.clipped());
+            json.append(", \"enabled\": ")
+                .append(widget.enabled())
                 .append('}');
         }
     }

@@ -317,6 +317,42 @@ class PreviewEngineTest {
             .contains("0/99"));
     }
 
+    // Integration contract: scripts must test the result of a real local click, not merely its dispatch.
+    @Test
+    void assertsWidgetStateAfterClickAndKeepsCompletedActionsOnFailure() throws Exception {
+        Path project = Files.createDirectories(temporaryDirectory.resolve("state-preview"));
+        Path source = project.resolve("src/preview/java/example/StatePreview.java");
+        Files.createDirectories(source.getParent());
+        Files.writeString(source, """
+            package example;
+            import com.cleanroommc.modularui.screen.ModularPanel;
+            import com.cleanroommc.modularui.widget.Widget;
+            import com.cleanroommc.modularui.widgets.ButtonWidget;
+            import dev.modularui.preview.PreviewEntrypoint;
+            public class StatePreview implements PreviewEntrypoint {
+                public Object createPanel(Context context) {
+                    Widget<?> content = new Widget<>().size(20).pos(10, 10);
+                    return ModularPanel.defaultPanel("state", 176, 100)
+                        .child(content)
+                        .child(new ButtonWidget<>().pos(68, 40).size(40, 20)
+                            .onMousePressed(button -> { content.setEnabled(false); return true; }));
+                }
+            }
+            """);
+        Path actions = temporaryDirectory.resolve("state-actions.txt");
+        Path output = temporaryDirectory.resolve("state-output");
+        Files.writeString(actions, "assert-enabled 0/0\nmove-widget 0/1\nclick left\nassert-disabled 0/0\ncapture disabled\n");
+        new PreviewActionRunner().run(project, "example.StatePreview", actions, output, new PreviewScreen(800, 600, 1));
+        assertTrue(Files.exists(output.resolve("captures/disabled/preview.png")));
+
+        Files.writeString(actions, "move-widget 0/1\nclick left\nassert-enabled 0/0\n");
+        IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
+            () -> new PreviewActionRunner().run(project, "example.StatePreview", actions, output,
+                new PreviewScreen(800, 600, 1)));
+        assertTrue(failure.getMessage().contains("state-actions.txt:3"));
+        assertTrue(Files.readString(output.resolve("actions.json")).contains("click left"));
+    }
+
     @Test
     void reportsTheSourceLineForAnUnknownScriptedActionBeforeOpeningTheProject() throws Exception {
         Path actions = temporaryDirectory.resolve("unknown-actions.txt");

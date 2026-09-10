@@ -47,11 +47,16 @@ public final class PreviewActionRunner {
         Cursor cursor = new Cursor();
         UiPreviewRunner artifacts = new UiPreviewRunner();
         Files.createDirectories(outputDirectory);
-        for (ScriptAction action : actions) {
-            execute(action, actionsFile, outputDirectory, className, session, artifacts, results, captureNames,
-                cursor);
+        try {
+            renderChecked(session, artifacts, outputDirectory, className);
+            for (ScriptAction action : actions) {
+                execute(action, actionsFile, outputDirectory, className, session, artifacts, results, captureNames,
+                    cursor);
+            }
+            artifacts.writeArtifacts(outputDirectory, className, session, session.lastRender());
+        } finally {
+            writeResults(outputDirectory.resolve("actions.json"), results);
         }
-        writeResults(outputDirectory.resolve("actions.json"), results);
         return List.copyOf(results);
     }
 
@@ -68,6 +73,7 @@ public final class PreviewActionRunner {
             }
             case MOVE_WIDGET -> {
                 PreviewResult rendered = session.render();
+                session.validateRender(rendered);
                 WidgetBounds widget = rendered.widgets()
                     .stream()
                     .filter(candidate -> candidate.path()
@@ -81,8 +87,27 @@ public final class PreviewActionRunner {
             }
             case PRESS -> handled = session.press(button(action));
             case RELEASE -> handled = session.release(button(action));
-            case CLICK -> handled = session.click(button(action));
+            case CLICK -> {
+                boolean pressed = session.press(button(action));
+                renderChecked(session, artifacts, outputDirectory, className);
+                boolean released = session.release(button(action));
+                handled = pressed || released;
+            }
             case SCROLL -> handled = session.scroll(direction(action), scrollAmount(action));
+            case ASSERT_ENABLED, ASSERT_DISABLED -> {
+                PreviewResult rendered = session.render();
+                session.validateRender(rendered);
+                String path = action.arguments().getFirst();
+                WidgetBounds widget = rendered.widgets().stream()
+                    .filter(candidate -> candidate.path().equals(path))
+                    .findFirst()
+                    .orElseThrow(() -> failure(source, action.line(), "No widget exists at path " + path));
+                boolean expected = action.command() == Command.ASSERT_ENABLED;
+                if (widget.enabled() != expected) {
+                    throw failure(source, action.line(), "Expected widget " + path
+                        + " to be " + (expected ? "enabled" : "disabled"));
+                }
+            }
             case CAPTURE -> {
                 String name = action.arguments().getFirst();
                 if (!captureNames.add(name)) {
@@ -97,10 +122,24 @@ public final class PreviewActionRunner {
                 results.add(new ActionResult(action.line(), action.source(), null, cursor.x, cursor.y, capture));
                 artifacts.writeArtifacts(captureDirectory, className, session, rendered);
                 writeResults(captureDirectory.resolve("actions.json"), results);
+                session.validateRender(rendered);
                 return;
             }
         }
         results.add(new ActionResult(action.line(), action.source(), handled, cursor.x, cursor.y, capture));
+        renderChecked(session, artifacts, outputDirectory, className);
+    }
+
+    private void renderChecked(PreviewSession session, UiPreviewRunner artifacts, Path output, String className)
+        throws IOException {
+        PreviewResult rendered = session.render();
+        // Keep the failing frame available as evidence without writing a PNG for every mouse movement.
+        try {
+            session.validateRender(rendered);
+        } catch (PreviewSession.RenderFailure failure) {
+            artifacts.writeArtifacts(output, className, session, rendered);
+            throw failure;
+        }
     }
 
     private List<ScriptAction> parse(Path source) throws IOException {
@@ -135,7 +174,7 @@ public final class PreviewActionRunner {
                 minimum = 2;
                 maximum = 2;
             }
-            case MOVE_WIDGET, PRESS, RELEASE, CLICK, CAPTURE -> {
+            case MOVE_WIDGET, PRESS, RELEASE, CLICK, CAPTURE, ASSERT_ENABLED, ASSERT_DISABLED -> {
                 minimum = 1;
                 maximum = 1;
             }
@@ -166,7 +205,7 @@ public final class PreviewActionRunner {
                     throw failure(source, line, "Invalid capture name: " + name);
                 }
             }
-            case MOVE_WIDGET -> {
+            case MOVE_WIDGET, ASSERT_ENABLED, ASSERT_DISABLED -> {
                 // A widget path is resolved against live bounds while the script runs.
             }
         }
@@ -237,6 +276,8 @@ public final class PreviewActionRunner {
         RELEASE("release"),
         CLICK("click"),
         SCROLL("scroll"),
+        ASSERT_ENABLED("assert-enabled"),
+        ASSERT_DISABLED("assert-disabled"),
         CAPTURE("capture");
 
         private final String text;

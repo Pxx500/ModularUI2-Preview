@@ -65,7 +65,8 @@ public final class UiPreviewMain {
                 command.verification());
             output.println("Verification summary: " + outputDirectory.resolve("summary.txt"));
             output.println("Machine summary: " + outputDirectory.resolve("summary.json"));
-            output.println(summary.passed() + " passed, " + summary.failed() + " failed");
+            output.println(summary.passed() + " passed, " + summary.failed() + " failed, "
+                + summary.knownFailures() + " known failures");
             return summary.allPassed() ? 0 : 1;
         }
         if (command.mode() == PreviewCommand.Mode.WATCH) {

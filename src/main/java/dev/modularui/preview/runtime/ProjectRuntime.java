@@ -310,6 +310,7 @@ public final class ProjectRuntime implements AutoCloseable {
         graphics.setColor(new Color(previewScreen.backgroundColor(), true));
         graphics.fillRect(0, 0, layout.logicalWidth(), layout.logicalHeight());
         List<String> renderedAssets = new ArrayList<>(translations.sources());
+        List<String> warnings = new ArrayList<>();
         try {
             StatCollector.installTranslations(translations.values());
             withContextClassLoader(classLoader,
@@ -318,13 +319,14 @@ public final class ProjectRuntime implements AutoCloseable {
                         graphics,
                         assets,
                         layout.screenHeight(),
+                        warnings,
                         () -> invoke(screenClass, screen, "drawScreen", new Class<?>[0]))));
         } finally {
             StatCollector.clearTranslations();
             graphics.dispose();
         }
         List<WidgetBounds> widgets = captureWidgets(panel, panelBounds, layout);
-        return new PreviewResult(framebuffer, layout, widgets, List.of(), renderedAssets);
+        return new PreviewResult(framebuffer, layout, widgets, warnings, renderedAssets);
     }
 
     private boolean dispatchMouse(Class<?> screenClass, Object screen, int button, boolean pressed) {
@@ -369,7 +371,7 @@ public final class ProjectRuntime implements AutoCloseable {
         try {
             Class<?> widgetClass = loadClass("com.cleanroommc.modularui.api.widget.IWidget");
             List<WidgetBounds> widgets = new ArrayList<>();
-            captureWidget(widgetClass, panel, "0", panelBounds, screen, widgets);
+            captureWidget(widgetClass, panel, "0", panelBounds, screen, widgets, true);
             return List.copyOf(widgets);
         } catch (ClassNotFoundException exception) {
             throw new IllegalStateException("Could not load the ModularUI2 widget contract", exception);
@@ -377,7 +379,7 @@ public final class ProjectRuntime implements AutoCloseable {
     }
 
     private void captureWidget(Class<?> widgetClass, Object widget, String path, Bounds panelBounds, ScreenLayout screen,
-        List<WidgetBounds> widgets) {
+        List<WidgetBounds> widgets, boolean parentEnabled) {
         Object area = invoke(widgetClass, widget, "getArea", new Class<?>[0]);
         Bounds logical = new Bounds(
             intValue(area, "x"),
@@ -386,18 +388,20 @@ public final class ProjectRuntime implements AutoCloseable {
             intValue(area, "height"));
         Bounds local = logical.translate(-panelBounds.x(), -panelBounds.y());
         Bounds logicalScreen = new Bounds(0, 0, screen.logicalWidth(), screen.logicalHeight());
+        boolean enabled = parentEnabled && (boolean) invoke(widgetClass, widget, "isEnabled", new Class<?>[0]);
         widgets.add(new WidgetBounds(
             path,
             widget.getClass().getSimpleName(),
             local,
             logical,
             logical.scale(screen.guiScale()),
-            !logical.intersection(logicalScreen).isEmpty(),
-            !logicalScreen.contains(logical)));
+            enabled && !logical.intersection(logicalScreen).isEmpty(),
+            !logicalScreen.contains(logical),
+            enabled));
 
         List<?> children = (List<?>) invoke(widgetClass, widget, "getChildren", new Class<?>[0]);
         for (int index = 0; index < children.size(); index++) {
-            captureWidget(widgetClass, children.get(index), path + "/" + index, panelBounds, screen, widgets);
+            captureWidget(widgetClass, children.get(index), path + "/" + index, panelBounds, screen, widgets, enabled);
         }
     }
 

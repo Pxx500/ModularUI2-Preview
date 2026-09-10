@@ -112,6 +112,10 @@ public final class GL11 {
     }
 
     public static void glRotatef(float angle, float x, float y, float z) {
+        if (angle != 0 && (x != 0 || y != 0 || z <= 0)) {
+            PreviewDrawContext.unsupported(
+                "unsupported.rotation-axis: Rotation is approximated around the positive Z axis");
+        }
         PreviewDrawContext.rotate(angle);
     }
 
@@ -139,7 +143,12 @@ public final class GL11 {
         PreviewDrawContext.enable(capability);
     }
 
-    public static void glBlendFunc(int source, int destination) {}
+    public static void glBlendFunc(int source, int destination) {
+        if (source != GL_SRC_ALPHA || destination != GL_ONE_MINUS_SRC_ALPHA) {
+            PreviewDrawContext.unsupported(
+                "unsupported.blend-function: Custom blend factors are approximated with source-alpha blending");
+        }
+    }
 
     public static void glBindTexture(int target, int texture) {}
 
@@ -155,7 +164,10 @@ public final class GL11 {
 
     public static void glDepthMask(boolean enabled) {}
 
-    public static void glFrustum(double left, double right, double bottom, double top, double near, double far) {}
+    public static void glFrustum(double left, double right, double bottom, double top, double near, double far) {
+        PreviewDrawContext.unsupported(
+            "unsupported.perspective-projection: Perspective projection is not applied");
+    }
 
     public static void glMatrixMode(int mode) {}
 

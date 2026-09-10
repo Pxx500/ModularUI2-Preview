@@ -24,10 +24,11 @@ public final class PreviewScenario {
     private final TimeoutCategory timeout;
     private final List<String> expectedAssets;
     private final String actions;
+    private final KnownFailure knownFailure;
 
     private PreviewScenario(String id, String description, String family, Class<?> previewedClass,
         Supplier<? extends PreviewEntrypoint> localStateFactory, List<String> tags, TimeoutCategory timeout,
-        List<String> expectedAssets, String actions) {
+        List<String> expectedAssets, String actions, KnownFailure knownFailure) {
         this.id = stableId(id);
         this.description = requiredText(description, "Preview scenario description");
         this.family = stableName(family, "Preview scenario family");
@@ -41,6 +42,7 @@ public final class PreviewScenario {
             .sorted()
             .toList();
         this.actions = validateActions(actions);
+        this.knownFailure = knownFailure;
     }
 
     public static PreviewScenario define(String id, String description, String family, Class<?> previewedClass,
@@ -54,6 +56,7 @@ public final class PreviewScenario {
             List.of(),
             TimeoutCategory.DEFAULT,
             List.of(),
+            null,
             null);
     }
 
@@ -71,6 +74,12 @@ public final class PreviewScenario {
 
     public PreviewScenario actions(String actions) {
         return copy(tags, timeout, expectedAssets, actions);
+    }
+
+    /** Documents one exact failure without skipping the scenario or reporting it as passed. */
+    public PreviewScenario knownFailure(String category, String causeMessage, String reason) {
+        return new PreviewScenario(id, description, family, previewedClass, localStateFactory, tags, timeout,
+            expectedAssets, actions, new KnownFailure(category, causeMessage, reason));
     }
 
     public String id() {
@@ -114,7 +123,8 @@ public final class PreviewScenario {
             tags,
             timeout,
             expectedAssets,
-            actions);
+            actions,
+            knownFailure);
     }
 
     public PreviewEntrypoint createEntrypoint() {
@@ -145,7 +155,8 @@ public final class PreviewScenario {
             tags,
             timeout,
             expectedAssets,
-            actions);
+            actions,
+            knownFailure);
     }
 
     private static String stableId(String value) {
@@ -195,11 +206,32 @@ public final class PreviewScenario {
     }
 
     public record Metadata(String id, String description, String family, String previewedClass, List<String> tags,
-        TimeoutCategory timeout, List<String> expectedAssets, String actions) {
+        TimeoutCategory timeout, List<String> expectedAssets, String actions, KnownFailure knownFailure) {
+
+        public Metadata(String id, String description, String family, String previewedClass, List<String> tags,
+            TimeoutCategory timeout, List<String> expectedAssets, String actions) {
+            this(id, description, family, previewedClass, tags, timeout, expectedAssets, actions, null);
+        }
 
         public Metadata {
             tags = List.copyOf(tags);
             expectedAssets = List.copyOf(expectedAssets);
+        }
+    }
+
+    public record KnownFailure(String category, String causeMessage, String reason) {
+        public KnownFailure {
+            requiredText(category, "Known failure category");
+            requiredText(causeMessage, "Known failure cause message");
+            requiredText(reason, "Known failure reason");
+        }
+
+        boolean matches(String actualCategory, Throwable failure) {
+            if (!category.equals(actualCategory)) return false;
+            for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+                if (causeMessage.equals(cause.getMessage())) return true;
+            }
+            return false;
         }
     }
 }
