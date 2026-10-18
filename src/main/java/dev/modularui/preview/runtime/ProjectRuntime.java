@@ -25,7 +25,10 @@ import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import net.minecraft.util.StatCollector;
 
 public final class ProjectRuntime implements AutoCloseable {
@@ -175,23 +178,32 @@ public final class ProjectRuntime implements AutoCloseable {
                 widgets,
                 new PreviewSession.Interaction() {
 
+                    private final Map<MouseButton, Long> pressedButtons = new EnumMap<>(MouseButton.class);
+
                     @Override
                     public void moveMouse(int screenX, int screenY) {
                         update(() -> {
                             invoke(contextClass, context, "updateState",
                                 new Class<?>[] { int.class, int.class, float.class },
                                 layout.toLogicalX(screenX), layout.toLogicalY(screenY), 0F);
+                            for (var pressed : pressedButtons.entrySet()) {
+                                invoke(screenClass, screen, "onMouseDrag", new Class<?>[] { int.class, long.class },
+                                    pressed.getKey().modularUiCode(),
+                                    TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - pressed.getValue()));
+                            }
                             return null;
                         });
                     }
 
                     @Override
                     public boolean press(MouseButton button) {
+                        pressedButtons.putIfAbsent(button, System.nanoTime());
                         return update(() -> dispatchMouse(screenClass, screen, button.modularUiCode(), true));
                     }
 
                     @Override
                     public boolean release(MouseButton button) {
+                        pressedButtons.remove(button);
                         return update(() -> dispatchMouse(screenClass, screen, button.modularUiCode(), false));
                     }
 
@@ -329,7 +341,8 @@ public final class ProjectRuntime implements AutoCloseable {
         try {
             Class<?> widgetClass = loadClass("com.cleanroommc.modularui.api.widget.IWidget");
             List<WidgetBounds> widgets = new ArrayList<>();
-            captureWidget(widgetClass, panel, "0", panelBounds, screen, widgets);
+            Object stack = instantiate(loadClass("com.cleanroommc.modularui.screen.viewport.GuiViewportStack"));
+            captureWidget(widgetClass, panel, "0", panelBounds, screen, widgets, stack);
             return List.copyOf(widgets);
         } catch (ClassNotFoundException exception) {
             throw new IllegalStateException("Could not load the ModularUI2 widget contract", exception);
@@ -337,15 +350,20 @@ public final class ProjectRuntime implements AutoCloseable {
     }
 
     private void captureWidget(Class<?> widgetClass, Object widget, String path, Bounds panelBounds, ScreenLayout screen,
-        List<WidgetBounds> widgets) {
+        List<WidgetBounds> widgets, Object stack) throws ClassNotFoundException {
         if (widget == null) return;
+        Class<?> stackClass = loadClass("com.cleanroommc.modularui.api.layout.IViewportStack");
+        Class<?> viewportClass = loadClass("com.cleanroommc.modularui.api.layout.IViewport");
+        invoke(stackClass, stack, "pushMatrix", new Class<?>[0]);
+        invoke(widgetClass, widget, "transform", new Class<?>[] { stackClass }, stack);
         Object area = invoke(widgetClass, widget, "getArea", new Class<?>[0]);
-        Bounds logical = new Bounds(
+        Bounds untransformed = new Bounds(
             intValue(area, "x"),
             intValue(area, "y"),
             intValue(area, "width"),
             intValue(area, "height"));
-        Bounds local = logical.translate(-panelBounds.x(), -panelBounds.y());
+        Bounds local = untransformed.translate(-panelBounds.x(), -panelBounds.y());
+        Bounds logical = transformedBounds(stackClass, stack, local.width(), local.height());
         Bounds logicalScreen = new Bounds(0, 0, screen.logicalWidth(), screen.logicalHeight());
         widgets.add(new WidgetBounds(
             path,
@@ -356,10 +374,34 @@ public final class ProjectRuntime implements AutoCloseable {
             !logical.intersection(logicalScreen).isEmpty(),
             !logicalScreen.contains(logical)));
 
+        if (viewportClass.isInstance(widget)) {
+            invoke(viewportClass, widget, "transformChildren", new Class<?>[] { stackClass }, stack);
+        }
         List<?> children = (List<?>) invoke(widgetClass, widget, "getChildren", new Class<?>[0]);
         for (int index = 0; index < children.size(); index++) {
-            captureWidget(widgetClass, children.get(index), path + "/" + index, panelBounds, screen, widgets);
+            captureWidget(widgetClass, children.get(index), path + "/" + index, panelBounds, screen, widgets, stack);
         }
+        invoke(stackClass, stack, "popMatrix", new Class<?>[0]);
+    }
+
+    private Bounds transformedBounds(Class<?> stackClass, Object stack, int width, int height) {
+        int left = Integer.MAX_VALUE;
+        int top = Integer.MAX_VALUE;
+        int right = Integer.MIN_VALUE;
+        int bottom = Integer.MIN_VALUE;
+        for (float x : new float[] { 0, width }) {
+            for (float y : new float[] { 0, height }) {
+                int transformedX = (Integer) invoke(stackClass, stack, "transformX",
+                    new Class<?>[] { float.class, float.class }, x, y);
+                int transformedY = (Integer) invoke(stackClass, stack, "transformY",
+                    new Class<?>[] { float.class, float.class }, x, y);
+                left = Math.min(left, transformedX);
+                top = Math.min(top, transformedY);
+                right = Math.max(right, transformedX);
+                bottom = Math.max(bottom, transformedY);
+            }
+        }
+        return new Bounds(left, top, right - left, bottom - top);
     }
 
     private Object instantiateScreen(Class<?> screenClass, Class<?> panelClass, String owner, Object panel) {

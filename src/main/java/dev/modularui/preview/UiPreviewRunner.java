@@ -199,13 +199,14 @@ public final class UiPreviewRunner {
             .append(", \"logicalHeight\": ")
             .append(layout.logicalHeight())
             .append('}');
-        Bounds panelLogical = layout.panelLogical();
+        WidgetBounds panel = result.widgets().getFirst();
+        Bounds panelLogical = panel.logical();
         json.append(",\n  \"panel\": {\"local\": ");
-        appendBounds(json, new Bounds(0, 0, panelLogical.width(), panelLogical.height()));
+        appendBounds(json, new Bounds(0, 0, session.panelBounds().width(), session.panelBounds().height()));
         json.append(", \"logical\": ");
         appendBounds(json, panelLogical);
         json.append(", \"screen\": ");
-        appendBounds(json, layout.panelScreen());
+        appendBounds(json, panel.screen());
         json.append('}');
         json.append(",\n  \"widgets\": [");
         appendWidgets(json, result.widgets());

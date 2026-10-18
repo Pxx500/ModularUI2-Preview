@@ -2,6 +2,7 @@ package dev.modularui.preview;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.Color;
 import java.awt.Graphics2D;
@@ -11,6 +12,51 @@ import org.junit.jupiter.api.Test;
 import org.lwjgl.opengl.GL11;
 
 class PreviewDrawContextTest {
+
+    /** Bug regression: native UI transforms scale glyph pixels and shadows, while font advance stays logical. */
+    @Test
+    void scalesTextGlyphsAndShadowWithTheCurrentMatrixWithoutChangingLogicalAdvance() {
+        var baseline = new BufferedImage(100, 40, BufferedImage.TYPE_INT_ARGB);
+        var reduced = new BufferedImage(100, 40, BufferedImage.TYPE_INT_ARGB);
+        var font = new net.minecraft.client.gui.FontRenderer();
+        int advance = font.getStringWidth("MMMM");
+        for (var image : new BufferedImage[] {baseline, reduced}) {
+            var graphics = image.createGraphics();
+            graphics.scale(2, 2);
+            var initialTransform = graphics.getTransform();
+            try {
+                PreviewDrawContext.run(graphics, () -> {
+                    GL11.glTranslatef(4, 3, 0);
+                    if (image == reduced) GL11.glScalef(.5F, .5F, 1);
+                    assertEquals(advance, font.drawStringWithShadow("MMMM", 0, 0, Color.WHITE.getRGB()));
+                });
+                assertEquals(initialTransform, graphics.getTransform());
+            } finally {
+                graphics.dispose();
+            }
+        }
+        var full = paintedBounds(baseline);
+        var half = paintedBounds(reduced);
+        assertTrue(Math.abs(half.width - full.width * .5) <= 1, "Glyph width must follow the matrix scale");
+        assertTrue(Math.abs(half.height - full.height * .5) <= 1, "Glyph and shadow height must follow the matrix scale");
+        assertEquals(full.x, half.x);
+        assertEquals(full.y, half.y);
+    }
+
+    private static java.awt.Rectangle paintedBounds(BufferedImage image) {
+        var bounds = new java.awt.Rectangle();
+        boolean empty = true;
+        for (int y = 0; y < image.getHeight(); y++) {
+            for (int x = 0; x < image.getWidth(); x++) {
+                if (alphaAt(image, x, y) == 0) continue;
+                if (empty) {
+                    bounds.setBounds(x, y, 1, 1);
+                    empty = false;
+                } else bounds.add(new java.awt.Rectangle(x, y, 1, 1));
+            }
+        }
+        return bounds;
+    }
 
     @Test
     void clipsDrawCallsToAnActiveStencilRectangle() {

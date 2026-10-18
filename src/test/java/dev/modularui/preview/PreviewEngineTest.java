@@ -248,6 +248,51 @@ class PreviewEngineTest {
     }
 
     @Test
+    void scaledPanelBoundsMatchRenderedWidgetsAndRouteClicks() throws Exception {
+        Path projectRoot = Files.createDirectories(temporaryDirectory.resolve("scaled-panel"));
+        Path source = projectRoot.resolve("src/preview/java/example/ScaledPanelPreview.java");
+        Files.createDirectories(source.getParent());
+        Files.writeString(source, """
+            package example;
+            import com.cleanroommc.modularui.screen.ModularPanel;
+            import com.cleanroommc.modularui.widgets.ButtonWidget;
+            import net.minecraft.client.gui.Gui;
+            import dev.modularui.preview.PreviewEntrypoint;
+            public final class ScaledPanelPreview implements PreviewEntrypoint {
+                public String owner() { return "example"; }
+                public Object createPanel(Context context) {
+                    boolean[] selected = {false};
+                    ModularPanel panel = new ModularPanel("scaled_panel") {
+                        public float getScale() { return 0.5f; }
+                    }.size(600, 332);
+                    panel.child(new ButtonWidget<>().pos(20, 20).size(80, 20)
+                        .background((c,x,y,w,h,t) -> Gui.drawRect(x,y,x+w,y+h,
+                            selected[0] ? 0xFF55FF55 : 0xFFFF5555))
+                        .onMousePressed(button -> { selected[0] = true; return true; }));
+                    return panel;
+                }
+            }
+            """);
+        try (PreviewSession session = PreviewEngine.open(projectRoot, "example.ScaledPanelPreview",
+            new PreviewScreen(800, 600, 2))) {
+            PreviewResult initial = session.render();
+            WidgetBounds panel = session.widgets().getFirst();
+            WidgetBounds button = session.widgets().get(1);
+            assertEquals(new Bounds(100, 134, 600, 332), panel.screen());
+            assertEquals(new Bounds(20, 20, 80, 20), button.local());
+            assertEquals(new Bounds(120, 154, 80, 20), button.screen());
+            assertFalse(panel.clipped());
+            assertFalse(button.clipped());
+            int centerX = button.screen().x() + button.screen().width() / 2;
+            int centerY = button.screen().y() + button.screen().height() / 2;
+            assertEquals(0xFFFF5555, initial.image().getRGB(centerX, centerY));
+            session.moveMouse(centerX, centerY);
+            assertTrue(session.click(MouseButton.LEFT));
+            assertEquals(0xFF55FF55, session.render().image().getRGB(centerX, centerY));
+        }
+    }
+
+    @Test
     void inputCallbacksUseTranslationsAndRefreshConditionalWidgets() throws Exception {
         Path projectRoot = Files.createDirectories(temporaryDirectory.resolve("translated-input"));
         Path source = projectRoot.resolve("src/preview/java/example/TranslatedInputPreview.java");
@@ -321,6 +366,49 @@ class PreviewEngineTest {
             assertTrue(containsColor(session.render().image(), button.screen(), 0xFF55FFFF));
             session.moveMouse(0, 0);
             session.render();
+        }
+    }
+
+    @Test
+    void dragsARealSliderOnlyWhileTheMouseButtonIsHeld() throws Exception {
+        Path projectRoot = Files.createDirectories(temporaryDirectory.resolve("slider-drag-preview"));
+        Path source = projectRoot.resolve("src/preview/java/example/SliderPreview.java");
+        Files.createDirectories(source.getParent());
+        Files.writeString(source, """
+            package example;
+            import com.cleanroommc.modularui.drawable.DynamicDrawable;
+            import com.cleanroommc.modularui.drawable.Rectangle;
+            import com.cleanroommc.modularui.screen.ModularPanel;
+            import com.cleanroommc.modularui.value.DoubleValue;
+            import com.cleanroommc.modularui.widgets.SliderWidget;
+            import dev.modularui.preview.PreviewEntrypoint;
+            public final class SliderPreview implements PreviewEntrypoint {
+                private double value;
+                @Override public Object createPanel(Context context) {
+                    return ModularPanel.defaultPanel("slider-drag", 200, 80)
+                        .child(new SliderWidget().bounds(0, 100)
+                            .value(new DoubleValue.Dynamic(() -> value, next -> value = next))
+                            .pos(20, 25).size(160, 20)
+                            .background(new DynamicDrawable(() -> new Rectangle()
+                                .color(value >= 70 ? 0xFF55FF55 : 0xFFFF5555))));
+                }
+            }
+            """);
+        try (PreviewSession session = PreviewEngine.open(projectRoot, "example.SliderPreview",
+            new PreviewScreen(800, 600, 2))) {
+            var slider = session.widgets().stream().filter(widget -> widget.type().equals("SliderWidget"))
+                .findFirst().orElseThrow();
+            int y = slider.screen().y() + slider.screen().height() / 2;
+            int lowX = slider.screen().x() + slider.screen().width() / 4;
+            int highX = slider.screen().x() + 3 * slider.screen().width() / 4;
+            session.moveMouse(lowX, y);
+            assertTrue(session.press(MouseButton.LEFT));
+            assertTrue(containsColor(session.render().image(), slider.screen(), 0xFFFF5555));
+            session.moveMouse(highX, y);
+            assertTrue(containsColor(session.render().image(), slider.screen(), 0xFF55FF55));
+            session.release(MouseButton.LEFT);
+            session.moveMouse(lowX, y);
+            assertTrue(containsColor(session.render().image(), slider.screen(), 0xFF55FF55));
         }
     }
 

@@ -66,14 +66,14 @@ public final class PreviewDrawContext {
     }
 
     public static void drawString(String text, int x, int y, int color, boolean shadow) {
-        Point2D point = transform(x, y);
-        MinecraftFont.drawString(
-            requireGraphics(),
-            text,
-            (int) Math.round(point.getX()),
-            (int) Math.round(point.getY()),
-            color,
-            shadow);
+        State state = requireState();
+        Graphics2D graphics = (Graphics2D) state.graphics.create();
+        try {
+            graphics.transform(state.matrix);
+            MinecraftFont.drawString(graphics, text, x, y, color, shadow);
+        } finally {
+            graphics.dispose();
+        }
     }
 
     public static void pushMatrix() {
