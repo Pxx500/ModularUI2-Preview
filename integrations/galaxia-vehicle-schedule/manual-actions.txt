@@ -1,0 +1,16 @@
+capture candidate
+move-widget 0/9/1/11
+click left
+capture priority-speed
+move-widget 0/9/1/15
+click left
+capture accepted
+move-widget 0/15
+click left
+capture saved-itinerary
+move-widget 0/15
+click left
+capture accepted-reopened
+move-widget 0/9/1/16
+click left
+capture cancelled

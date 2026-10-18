@@ -1,0 +1,6 @@
+capture refuel-invalid-at-pad
+move-widget 0/9/0/0/0/0/7/1
+click left
+move-widget 0/9/0/2/0/0/3
+click left
+capture invalid-refuel-removed

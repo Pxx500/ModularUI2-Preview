@@ -1,0 +1,7 @@
+capture recipe-list
+move-widget 0/0/42/1
+click left
+capture groups-open
+move-widget 0/0/42/1
+click left
+capture groups-closed

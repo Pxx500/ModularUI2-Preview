@@ -1,0 +1,11 @@
+move-widget 0/0/7
+click left
+capture big-uv
+move-widget 0/0/0
+click left
+capture base-tiers
+move-widget 0/0/1
+click left
+move-widget 0/0/7
+click left
+capture big-uv-again

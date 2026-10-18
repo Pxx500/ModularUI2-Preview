@@ -1,0 +1,11 @@
+move-widget 0/9/0/0/0/1/1
+click left
+move-widget 0/9/0/2/0/0/2
+click left
+capture body-group-picker
+move-widget 0/9/0/4/0/2
+click left
+capture station-group-picker
+move-widget 0/9/0/3/0
+click left
+capture selected-destination-context

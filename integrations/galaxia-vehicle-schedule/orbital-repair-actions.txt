@@ -1,0 +1,9 @@
+capture station-pad-actions
+move-widget 0/9/0/0/0/0/7/1
+click left
+capture orbital-repair-arguments
+move-widget 0/9/0/2/0/0/0
+click left
+move-widget 0/9/0/0/0/0/11
+click left
+capture added-orbital-repair

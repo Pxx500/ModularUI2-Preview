@@ -1,0 +1,4 @@
+capture warning
+move-widget 0/9/1/0/5
+click left
+capture back-to-schedule

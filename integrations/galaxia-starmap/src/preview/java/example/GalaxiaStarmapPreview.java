@@ -1,7 +1,7 @@
 package example;
 
 import com.cleanroommc.modularui.value.sync.PanelSyncManager;
-import com.gtnewhorizons.galaxia.client.gui.orbitalGUI.GalacticChartGui;
+import com.gtnewhorizons.galaxia.client.gui.orbitalGUI.GalacticMapWidget;
 import com.gtnewhorizons.galaxia.registry.celestial.CelestialRegistry;
 import com.gtnewhorizons.galaxia.registry.celestial.asteroid.AsteroidFieldOrbitResolver;
 import com.gtnewhorizons.galaxia.registry.orbital.OrbitalMechanics;
@@ -25,7 +25,7 @@ public final class GalaxiaStarmapPreview implements PreviewEntrypoint {
 
     @Override
     public Class<?> previewedClass() {
-        return GalacticChartGui.class;
+        return GalacticMapWidget.class;
     }
 
     @Override
@@ -53,7 +53,7 @@ public final class GalaxiaStarmapPreview implements PreviewEntrypoint {
         EntityClientPlayerMP player = Minecraft.getMinecraft().thePlayer;
         player.dimension = 0;
 
-        return new GalacticChartGui().build((PanelSyncManager) context.panelSyncManager(), player);
+        return GalacticMapWidget.build((PanelSyncManager) context.panelSyncManager(), player);
     }
 
     private static void setVanillaBootstrap(boolean active) {
